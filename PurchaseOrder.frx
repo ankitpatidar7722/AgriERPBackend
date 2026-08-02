@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Changes added/done by Vishal Pushpad - 02 Apr 2026 -->
+<!-- Changes done by Vishal Pushpad - 2026-05-23 - Print design simplified: clean black-border style matching sample -->
+<!-- Changes done by Vishal Pushpad - 30 May 2026 - Removed Supplier Code & Plant row, fixed address/contact/transport display -->
+<!-- Changes done by Vishal Pushpad - 30 May 2026 - Central header (Logo+Title+Placeholder), signature moved to footer -->
+<!-- Changes done by Vishal Pushpad - 2026-05-23 - Added GST breakdown (CGST/SGST/IGST), HSN code, supplier/company address, ModeOfTransport, CreatedBy -->
+<!-- Changes done by Vishal Pushpad - 30 May 2026 - Header repeats on every page (PageHeaderBand), print date + page count in footer -->
+<Report ScriptLanguage="CSharp" TextQuality="Regular" SmoothGraphics="true" ReportInfo.Created="2026-04-02" ReportInfo.Modified="05/30/2026 00:00:00" ReportInfo.CreatorVersion="2025.1.0.0">
+  <ScriptText>using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using FastReport;
+using FastReport.Data;
+using FastReport.Table;
+using FastReport.Utils;
+namespace FastReport
+{
+  public class ReportScript
+  {
+  }
+}
+</ScriptText>
+  <Dictionary>
+    <TableDataSource Name="ItemData" ReferenceName="ItemData" DataType="System.Int32" Enabled="true">
+      <Column Name="SerialNo"              DataType="System.String"/>
+      <Column Name="ItemCode"             DataType="System.String"/>
+      <Column Name="ItemName"             DataType="System.String"/>
+      <Column Name="NoOfPacks"            DataType="System.String"/>
+      <Column Name="QtyPerPack"           DataType="System.String"/>
+      <Column Name="PurchaseOrderQuantity" DataType="System.String"/>
+      <Column Name="PurchaseUnit"          DataType="System.String"/>
+      <Column Name="PurchaseRate"          DataType="System.String"/>
+      <Column Name="BasicAmount"           DataType="System.String"/>
+      <Column Name="Tax1"                  DataType="System.String"/>
+      <Column Name="Tax2"                  DataType="System.String"/>
+      <Column Name="ExpectedDeliveryDate"  DataType="System.String"/>
+    </TableDataSource>
+    <!-- Changes added by Vishal Pushpad - 2026-06-28 - Delivery schedule (2nd page) data source -->
+    <TableDataSource Name="ScheduleData" ReferenceName="ScheduleData" DataType="System.Int32" Enabled="true">
+      <Column Name="SerialNo"     DataType="System.String"/>
+      <Column Name="ItemCode"     DataType="System.String"/>
+      <Column Name="ItemName"     DataType="System.String"/>
+      <Column Name="Quantity"     DataType="System.String"/>
+      <Column Name="Unit"         DataType="System.String"/>
+      <Column Name="Transport"    DataType="System.String"/>
+      <Column Name="DeliveryDate" DataType="System.String"/>
+    </TableDataSource>
+    <Parameter Name="VoucherNo"          DataType="System.String" AsString=""/>
+    <Parameter Name="VoucherDate"        DataType="System.String" AsString=""/>
+    <Parameter Name="LedgerName"         DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierGstNo"      DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierAddress"    DataType="System.String" AsString=""/>
+    <Parameter Name="CurrencyCode"       DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyName"        DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyGstin"       DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyAddress"     DataType="System.String" AsString=""/>
+    <Parameter Name="ProductionUnitName" DataType="System.String" AsString=""/>
+    <Parameter Name="DeliveryAddress"    DataType="System.String" AsString=""/>
+    <Parameter Name="TermsOfPayment"     DataType="System.String" AsString=""/>
+    <Parameter Name="PurchaseTerms"      DataType="System.String" AsString=""/>
+    <Parameter Name="ModeOfTransport"    DataType="System.String" AsString=""/>
+    <Parameter Name="CreatedBy"          DataType="System.String" AsString=""/>
+    <Parameter Name="ApprovedBy"         DataType="System.String" AsString=""/>
+    <Parameter Name="PurchaseReference"  DataType="System.String" AsString=""/>
+    <Parameter Name="Narration"          DataType="System.String" AsString=""/>
+    <Parameter Name="TotalBasicAmount"   DataType="System.String" AsString=""/>
+    <Parameter Name="TotalNetAmount"     DataType="System.String" AsString=""/>
+    <Parameter Name="TotalTaxAmount"     DataType="System.String" AsString=""/>
+    <!-- Changes added by Vishal Pushpad - 2026-06-26 - Other Charges (freight/packing etc.) -->
+    <!-- Changes added by Vishal Pushpad - 2026-07-08 - OtherChargesLabel: named charge heads (multi-line) -->
+    <Parameter Name="OtherChargesLabel"  DataType="System.String" AsString=""/>
+    <Parameter Name="OtherCharges"       DataType="System.String" AsString=""/>
+    <Parameter Name="TotalCgstAmount"    DataType="System.String" AsString=""/>
+    <Parameter Name="TotalSgstAmount"    DataType="System.String" AsString=""/>
+    <Parameter Name="TotalIgstAmount"    DataType="System.String" AsString=""/>
+    <Parameter Name="TotalItems"         DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierCode"       DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierPan"        DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierContactNo"  DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierState"      DataType="System.String" AsString=""/>
+    <Parameter Name="SupplierEmail"      DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyState"       DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyCinNo"       DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyPan"         DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyContactNo"   DataType="System.String" AsString=""/>
+    <Parameter Name="CompanyEmail"       DataType="System.String" AsString=""/>
+    <Parameter Name="AmountInWords"     DataType="System.String" AsString=""/>
+    <!-- Changes added by Vishal Pushpad - 2026-07-08 - Dynamic tax total rows (CGST+SGST vs IGST) -->
+    <Parameter Name="TaxLbl1"            DataType="System.String" AsString=""/>
+    <Parameter Name="TaxVal1"            DataType="System.String" AsString=""/>
+    <Parameter Name="TaxLbl2"            DataType="System.String" AsString=""/>
+    <Parameter Name="TaxVal2"            DataType="System.String" AsString=""/>
+    <!-- Dynamic tax column headers: intra -> CGST/SGST, inter -> IGST/(hidden) -->
+    <Parameter Name="TaxHdr1"            DataType="System.String" AsString=""/>
+    <Parameter Name="TaxHdr2"            DataType="System.String" AsString=""/>
+  </Dictionary>
+  <ReportPage Name="Page1" RawPaperSize="9" LeftMargin="5" RightMargin="5" TopMargin="5" BottomMargin="5" Watermark.Font="Arial, 60pt">
+
+    <!-- =====================================================================
+         PAGE HEADER BAND — repeats on every page
+         Logo(48) + InfoTable(180) + DetailsTable(60) + SectionLabel(16) + ColHeaders(22) = 326
+         Adding 4px gap after line = 330
+         ===================================================================== -->
+    <PageHeaderBand Name="PageHeader1" Width="756" Height="274" CanGrow="true">
+
+      <!-- == LETTERHEAD: Logo(left,200) + Title(center,356) + Placeholder(right,200) = 756 == -->
+      <PictureObject Name="Logo" Left="0" Top="2" Width="200" Height="42"
+                     SizeMode="Zoom" HorzAlign="Left" VertAlign="Center"/>
+      <TextObject Name="TxtDocTitle" Left="200" Top="2" Width="356" Height="42"
+                  Text="PURCHASE ORDER"
+                  HorzAlign="Center" VertAlign="Center"
+                  Font="Calibri, 15pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <!-- Blank placeholder box (right) — for future tracking number / QR etc. -->
+      <TextObject Padding="6, 2, 2, 2" Name="TxtTrackNoBox" Left="556" Top="2" Width="200" Height="42"
+                  Text="F.NO.:&#13;&#10;REV:-&#13;&#10;EFT. Date:-"
+                  HorzAlign="Left" VertAlign="Center"
+                  Border.Lines="All" Border.Color="0, 0, 0"
+                  Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+
+      <!-- Separator line below letterhead -->
+      <LineObject Name="HdrLine" Top="48" Width="756" Border.Color="0, 0, 0" Border.Width="1"/>
+
+      <!-- == THREE SIDE-BY-SIDE SECTIONS: SUPPLIER | BILLING | SHIPPING ==
+           6 cols: L(56)+V(196) x 3 = 756 | PORow(20) + SectionHdr(20) + 7 rows x 20 = 180 -->
+      <TableObject Name="TblInfo" Top="52" Width="756" Height="222" Border.Lines="All" Border.Color="0, 0, 0">
+        <TableColumn Name="C1" Width="52"/>
+        <TableColumn Name="C2" Width="200"/>
+        <TableColumn Name="C3" Width="52"/>
+        <TableColumn Name="C4" Width="200"/>
+        <TableColumn Name="C5" Width="64"/>
+        <TableColumn Name="C6" Width="188"/>
+
+        <!-- Section headers: Supplier | Billing | Shipping -->
+        <TableRow Name="ITitleRow" Height="20">
+          <TableCell Name="ISupTitle" Border.Lines="All" Border.Color="0, 0, 0" Text="SUPPLIER DETAILS" HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0" Fill.Color="220,220,220" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+          <TableCell Name="IBillTitle" Border.Lines="All" Border.Color="0, 0, 0" Text="BILLING DETAILS" HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0" Fill.Color="220,220,220" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+          <TableCell Name="IShipTitle" Border.Lines="All" Border.Color="0, 0, 0" Text="SHIPPING DETAILS" HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0" Fill.Color="220,220,220" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+        </TableRow>
+
+        <!-- Data rows: NO horizontal separators; only vertical section dividers (value cells Right border).
+             Address rows are taller so wrapped text is not cut. VertAlign Top so multi-line grows down. -->
+        <!-- Row 1: Supplier PO No | Billing Name | Ship Company -->
+        <TableRow Name="IR1" Height="18">
+          <TableCell Name="IR1L1" Border.Lines="None" Text="PO No" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR1V1" Border.Lines="Right" Border.Color="0, 0, 0" Text="[VoucherNo]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR1L2" Border.Lines="None" Text="Name" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR1V2" CanGrow="true" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyName]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR1L3" Border.Lines="None" Text="Company" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR1V3" CanGrow="true" Border.Lines="None" Text="[CompanyName]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <!-- Row 2: Supplier PO Date | Billing Address | Ship Address -->
+        <TableRow Name="IR2" Height="46">
+          <TableCell Name="IR2L1" Border.Lines="None" Text="PO Date" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR2V1" Border.Lines="Right" Border.Color="0, 0, 0" Text="[VoucherDate]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR2L2" Border.Lines="None" Text="Address" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR2V2" CanGrow="true" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyAddress]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR2L3" Border.Lines="None" Text="Address" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR2V3" CanGrow="true" Border.Lines="None" Text="[DeliveryAddress]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <!-- Row 3: Supplier Name | Billing State | Ship Transport Mode -->
+        <TableRow Name="IR3" Height="32">
+          <TableCell Name="IR3L1" Border.Lines="None" Text="Name" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR3V1" CanGrow="true" Border.Lines="Right" Border.Color="0, 0, 0" Text="[LedgerName]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR3L2" Border.Lines="None" Text="State" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR3V2" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyState]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR3L3" Border.Lines="None" Text="Transport Mode" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR3V3" Border.Lines="None" Text="[ModeOfTransport]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <!-- Row 4: Supplier Address | Billing GSTIN | (ship blank) -->
+        <TableRow Name="IR4" Height="34">
+          <TableCell Name="IR4L1" Border.Lines="None" Text="Address" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR4V1" CanGrow="true" Border.Lines="Right" Border.Color="0, 0, 0" Text="[SupplierAddress]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR4L2" Border.Lines="None" Text="GSTIN" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR4V2" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyGstin]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR4L3" Border.Lines="None" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+        </TableRow>
+
+        <!-- Row 5: Supplier State | Billing CIN No | (ship blank) -->
+        <TableRow Name="IR5" Height="18">
+          <TableCell Name="IR5L1" Border.Lines="None" Text="State" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR5V1" Border.Lines="Right" Border.Color="0, 0, 0" Text="[SupplierState]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR5L2" Border.Lines="None" Text="CIN No" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR5V2" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyCinNo]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR5L3" Border.Lines="None" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+        </TableRow>
+
+        <!-- Row 6: Supplier GSTIN | Billing PAN No | (ship blank) -->
+        <TableRow Name="IR6" Height="18">
+          <TableCell Name="IR6L1" Border.Lines="None" Text="GSTIN" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR6V1" Border.Lines="Right" Border.Color="0, 0, 0" Text="[SupplierGstNo]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR6L2" Border.Lines="None" Text="PAN No" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR6V2" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyPan]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR6L3" Border.Lines="None" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+        </TableRow>
+
+        <!-- Row 7: Supplier Email | Billing Email | (ship blank) -->
+        <TableRow Name="IR7" Height="18">
+          <TableCell Name="IR7L1" Border.Lines="None" Text="Email" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR7V1" Border.Lines="Right" Border.Color="0, 0, 0" Text="[SupplierEmail]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR7L2" Border.Lines="None" Text="Email" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR7V2" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyEmail]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR7L3" Border.Lines="None" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+        </TableRow>
+
+        <!-- Row 8: Supplier Contact | Billing Contact | (ship blank) -->
+        <TableRow Name="IR8" Height="18">
+          <TableCell Name="IR8L1" Border.Lines="None" Text="Contact" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR8V1" Border.Lines="Right" Border.Color="0, 0, 0" Text="[SupplierContactNo]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR8L2" Border.Lines="None" Text="Contact" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR8V2" Border.Lines="Right" Border.Color="0, 0, 0" Text="[CompanyContactNo]" Padding="5, 4, 2, 2" VertAlign="Top" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="IR8L3" Border.Lines="None" ColSpan="2"/>
+          <TableCell Font="Arial, 10pt"/>
+        </TableRow>
+
+      </TableObject>
+
+      <!-- ITEM DETAILS + column headers in a ChildBand: flow after the growable info table -->
+      <ChildBand Name="ItemsHeaderChild" Width="756" Height="44">
+<!-- == ITEM DETAILS section header == -->
+      <TextObject Name="LblItems" Top="0" Width="756" Height="16"
+        Border.Lines="All" Border.Color="0, 0, 0"
+        Fill.Color="220, 220, 220"
+        Text="ITEM DETAILS"
+        HorzAlign="Center" VertAlign="Center"
+        Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+
+      <!-- == Column headers == Changes added by Vishal Pushpad - 2026-06-26
+           Top=308 H=28 bottom=336. Layout (total=756): SNo(20)+Code(50)+Name(110)+NoPack(44)+QtyPack(48)
+           +POQty(42)+Unit(32)+Rate(48)+Basic(64)+CGST(76)+SGST(76)+IGST(76)+ExpDate(70) = 756.
+           CGST/SGST/IGST cells me amount ke saath bracket me % aata hai. -->
+      <TextObject Name="CH_SNo"     Top="16" Left="0"   Width="20"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="SR"             HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Code"    Top="16" Left="20"  Width="52"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Item Code"       HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Name"    Top="16" Left="72"  Width="180" Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Item Name"       HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_NoPack"  Top="16" Left="252" Width="44"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="No of Pack/Rolls" HorzAlign="Center" VertAlign="Center" Font="Calibri, 6pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_QtyPack" Top="16" Left="296" Width="48"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Qty/(Pack/Roll)"  HorzAlign="Center" VertAlign="Center" Font="Calibri, 6pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_POQty"   Top="16" Left="344" Width="44"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="PO Qty"          HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Unit"    Top="16" Left="388" Width="32"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Unit"            HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Rate"    Top="16" Left="420" Width="52"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Rate"            HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Basic"   Top="16" Left="472" Width="74"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Basic Amount"    HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Tax1"    Top="16" Left="546" Width="70"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="[TaxHdr1]"       HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_Tax2"    Top="16" Left="616" Width="70"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="[TaxHdr2]"       HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="CH_ExpDate" Top="16" Left="686" Width="70"  Height="28" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Exp Deli Date"   HorzAlign="Center" VertAlign="Center" Font="Calibri, 7pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          </ChildBand>
+      </PageHeaderBand>
+
+    <!-- =====================================================================
+         DATA BAND
+         CRITICAL: CanGrow + GrowToBottom on EVERY cell for uniform row heights
+         ===================================================================== -->
+    <DataBand Name="DataItems" Width="756" Height="20" CanGrow="true" DataSource="ItemData">
+      <TextObject Name="D_SNo"     Left="0"   Width="20"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Left, Right, Bottom" Border.Color="0, 0, 0" Text="[ItemData.SerialNo]"             Padding="1, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Code"    Left="20"  Width="52"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.ItemCode]"             Padding="2, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 7.5pt"         TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Name"    Left="72"  Width="180" Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.ItemName]"             Padding="2, 2, 1, 2" VertAlign="Top"                    Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_NoPack"  Left="252" Width="44"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.NoOfPacks]"            Padding="1, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_QtyPack" Left="296" Width="48"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.QtyPerPack]"           Padding="1, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_POQty"   Left="344" Width="44"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.PurchaseOrderQuantity]" Padding="1, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Unit"    Left="388" Width="32"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.PurchaseUnit]"         Padding="1, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Rate"    Left="420" Width="52"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.PurchaseRate]"         Padding="1, 2, 4, 2" HorzAlign="Right"  VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Basic"   Left="472" Width="74"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.BasicAmount]"          Padding="1, 2, 4, 2" HorzAlign="Right"  VertAlign="Top" Font="Calibri, 8pt"           TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Tax1"    Left="546" Width="70"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.Tax1]"                 Padding="1, 2, 4, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 7.5pt"         TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_Tax2"    Left="616" Width="70"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.Tax2]"                 Padding="1, 2, 4, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 7.5pt"         TextFill.Color="0, 0, 0"/>
+      <TextObject Name="D_ExpDate" Left="686" Width="70"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ItemData.ExpectedDeliveryDate]" Padding="1, 2, 1, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 7.5pt"         TextFill.Color="0, 0, 0"/>
+    </DataBand>
+
+    <!-- =====================================================================
+         REPORT SUMMARY — Two-column layout
+         Left: Total Items, Terms of Payment, Remark
+         Right: Payment summary (Basic, CGST, SGST, IGST, Tax, Net Amount)
+         ===================================================================== -->
+    <ReportSummaryBand Name="ReportSummary1" Width="756" Height="284" CanGrow="true">
+      <LineObject Name="DataClose" Width="756" Border.Color="0, 0, 0" Border.Width="0.5"/>
+
+      <!-- LEFT TABLE: Total Items + Terms of Payment + Remark + Amount In Words
+           Width=490, 4 rows (20+20+20+80=140) -->
+      <TableObject Name="TblSummaryLeft" Left="0" Top="4" Width="490" Height="140" Border.Lines="All" Border.Color="0, 0, 0">
+        <TableColumn Name="SLL" Width="120"/>
+        <TableColumn Name="SLV" Width="370"/>
+
+        <TableRow Name="SLR1" Height="20">
+          <TableCell Name="SL1L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="Total Items" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SL1V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TotalItems]" Padding="6, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <TableRow Name="SLR2" Height="20">
+          <TableCell Name="SL2L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="Terms of Payment" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SL2V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TermsOfPayment]" Padding="6, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8.5pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <TableRow Name="SLR3" Height="20">
+          <TableCell Name="SL3L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="Remark" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SL3V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[PurchaseReference]" Padding="6, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8.5pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <TableRow Name="SLR4" Height="80">
+          <TableCell Name="SL4L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="Amount (In Words)" Padding="5, 3, 2, 3" VertAlign="Top"
+            Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SL4V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[AmountInWords]" Padding="6, 3, 2, 3" VertAlign="Top"
+            Font="Calibri, 8.5pt, style=Bold" TextFill.Color="25, 84, 123"/>
+        </TableRow>
+      </TableObject>
+
+      <!-- RIGHT TABLE: Payment Summary
+           Left=490, Width=266, 6 rows (5x20 + 1x40 = 140) -->
+      <TableObject Name="TblSummaryRight" Left="490" Top="4" Width="266" Height="140" Border.Lines="All" Border.Color="0, 0, 0">
+        <TableColumn Name="SRL" Width="150"/>
+        <TableColumn Name="SRV" Width="116"/>
+
+        <TableRow Name="SRR1" Height="20">
+          <TableCell Name="SR1L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="Total Basic Amount ([CurrencyCode])" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SR1V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TotalBasicAmount]" Padding="2, 3, 8, 3" HorzAlign="Right" VertAlign="Center"
+            Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <!-- Changes added by Vishal Pushpad - 2026-07-08 - Dynamic tax rows:
+             intra-state -> Total CGST + Total SGST ; inter-state -> Total IGST (2nd row hidden in service) -->
+        <TableRow Name="SRR2" Height="20">
+          <TableCell Name="SR2L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TaxLbl1]" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SR2V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TaxVal1]" Padding="2, 3, 8, 3" HorzAlign="Right" VertAlign="Center"
+            Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <TableRow Name="SRR3" Height="20">
+          <TableCell Name="SR3L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TaxLbl2]" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SR3V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TaxVal2]" Padding="2, 3, 8, 3" HorzAlign="Right" VertAlign="Center"
+            Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <!-- Changes added by Vishal Pushpad - 2026-06-26 - "Total Tax" (CGST+SGST+IGST upar dikh hi rahe hain — redundant)
+             ki jagah "Other Charges" taaki Basic + CGST + SGST + IGST + Other Charges = Net balance ho -->
+        <TableRow Name="SRR5" Height="20">
+          <TableCell Name="SR5L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[OtherChargesLabel]" Padding="5, 3, 2, 3" VertAlign="Top"
+            Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+          <TableCell Name="SR5V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[OtherCharges]" Padding="2, 3, 8, 3" HorzAlign="Right" VertAlign="Top"
+            Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+        </TableRow>
+
+        <TableRow Name="SRR6" Height="60">
+          <TableCell Name="SR6L" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="Net Amount ([CurrencyCode])" Padding="5, 3, 2, 3" VertAlign="Center"
+            Font="Calibri, 10pt, style=Bold" TextFill.Color="0, 0, 0"
+            Fill.Color="235, 235, 235"/>
+          <TableCell Name="SR6V" Border.Lines="All" Border.Color="0, 0, 0"
+            Text="[TotalNetAmount]" Padding="2, 3, 8, 3" HorzAlign="Right" VertAlign="Center"
+            Font="Calibri, 10pt, style=Bold" TextFill.Color="0, 0, 0"
+            Fill.Color="235, 235, 235"/>
+        </TableRow>
+      </TableObject>
+
+      <!-- Changes done by Vishal Pushpad - 02 Jun 2026 - Purchase Terms section (before signature) -->
+      <!-- Changes done by Vishal Pushpad - 02 Jun 2026 - Centered header (matches ITEM DETAILS) -->
+      <!-- Changes done by Vishal Pushpad - 02 Jun 2026 - Signature moved into summary (flows right under terms) so terms stay on the items page and leave no blank gap -->
+      <!-- Purchase Terms — printed only when PurchaseTerms parameter is non-empty (service hides these objects otherwise) -->
+      <TextObject Name="TermsHdr" Top="150" Left="0" Width="756" Height="16"
+        Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220"
+        Text="PURCHASE TERMS &amp; CONDITIONS" Padding="2, 2, 2, 2"
+        HorzAlign="Center" VertAlign="Center"
+        Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="TermsBody" Top="166" Left="0" Width="756" Height="40" CanGrow="true"
+        Text="[PurchaseTerms]" Padding="5, 4, 5, 4" VertAlign="Top"
+        Border.Lines="All" Border.Color="0, 0, 0"
+        Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+
+      <!-- Signature row — flows directly beneath the terms (shifts down as terms grow) -->
+      <TableObject Name="TblSign" Top="210" Width="756" Height="70" Border.Lines="All" Border.Color="0, 0, 0">
+        <TableColumn Name="SC1" Width="245"/>
+        <TableColumn Name="SC2" Width="246"/>
+        <TableColumn Name="SC3" Width="265"/>
+        <TableRow Name="SR1" Height="70">
+          <TableCell Name="SS1" Border.Lines="All" Border.Color="0, 0, 0"/>
+          <TableCell Name="SS2" Border.Lines="All" Border.Color="0, 0, 0"/>
+          <TableCell Name="SS3" Border.Lines="All" Border.Color="0, 0, 0"/>
+        </TableRow>
+      </TableObject>
+      <!-- Signature: label on top (bold/dark) + value below (light) -->
+      <TextObject Name="SigL1" Top="214" Left="0"   Width="245" Height="14" Text="Created By"      HorzAlign="Center" VertAlign="Center" Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SigV1" Top="230" Left="0"   Width="245" Height="14" Text="[CreatedBy]"     HorzAlign="Center" VertAlign="Center" Font="Calibri, 8.5pt"          TextFill.Color="80, 80, 80"/>
+      <TextObject Name="SigL2" Top="214" Left="245" Width="246" Height="14" Text="Approved By"     HorzAlign="Center" VertAlign="Center" Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SigV2" Top="230" Left="245" Width="246" Height="14" Text="[ApprovedBy]"    HorzAlign="Center" VertAlign="Center" Font="Calibri, 8.5pt"          TextFill.Color="80, 80, 80"/>
+      <TextObject Name="SigL3" Top="214" Left="491" Width="265" Height="14" Text="Authorised Sign" HorzAlign="Center" VertAlign="Center" Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+
+    </ReportSummaryBand>
+
+    <!-- =====================================================================
+         PAGE FOOTER — Print date + Page number (signature moved into summary)
+         ===================================================================== -->
+    <PageFooterBand Name="PageFooter1" Width="756" Height="20">
+      <LineObject Name="FtrLine" Top="2" Width="756" Border.Color="0, 0, 0" Border.Width="0.5"/>
+      <TextObject Name="TxtFtrLeft" Top="5" Left="0" Width="440" Height="14"
+        Text="Print Date And Time :- [FormatDateTime(DateTime.UtcNow.AddHours(5.5), &quot;dd-MMM-yyyy HH:mm:ss tt&quot;)]"
+        Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="TxtFtrRight" Top="5" Left="440" Width="316" Height="14"
+        Text="Page [Page#] of [TotalPages#]"
+        HorzAlign="Right" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+    </PageFooterBand>
+
+  </ReportPage>
+
+  <!-- =====================================================================
+       PAGE 2 — DELIVERY SCHEDULE (hidden by the service when there are no rows)
+       Changes added by Vishal Pushpad - 2026-06-28
+       ===================================================================== -->
+  <ReportPage Name="SchedulePage" RawPaperSize="9" LeftMargin="5" RightMargin="5" TopMargin="5" BottomMargin="5" Watermark.Font="Arial, 60pt">
+    <!-- Changes done by Vishal Pushpad - 2026-07-22 - CanGrow=true on title band so it self-sizes to its column headers (prevents any header/first-data-row overlap) -->
+    <ReportTitleBand Name="SReportTitle" Width="756" Height="110" CanGrow="true">
+      <PictureObject Name="Logo2" Left="0" Top="2" Width="200" Height="42" SizeMode="Zoom" HorzAlign="Left" VertAlign="Center"/>
+      <TextObject Name="STitle" Left="200" Top="2" Width="356" Height="42" Text="DELIVERY SCHEDULE" HorzAlign="Center" VertAlign="Center" Font="Calibri, 15pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="STrack" Left="556" Top="2" Width="200" Height="42" Text="F.NO.:&#13;&#10;REV:-&#13;&#10;EFT. Date:-" HorzAlign="Left" VertAlign="Center" Padding="6, 2, 2, 2" Border.Lines="All" Border.Color="0, 0, 0" Font="Calibri, 8.5pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <LineObject Name="SHdrLine" Top="48" Width="756" Border.Color="0, 0, 0" Border.Width="1"/>
+      <TextObject Name="SRef1" Top="52" Left="0" Width="756" Height="18" Border.Lines="Left, Top, Right" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="PO No :  [VoucherNo]        PO Date :  [VoucherDate]" HorzAlign="Left" VertAlign="Center" Padding="6, 2, 2, 2" Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SRef2" Top="70" Left="0" Width="756" Height="18" Border.Lines="Left, Right, Bottom" Border.Color="0, 0, 0" Fill.Color="235, 235, 235" Text="Supplier :  [LedgerName]" HorzAlign="Left" VertAlign="Center" Padding="6, 2, 2, 2" Font="Calibri, 9pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_SNo"  Top="90" Left="0"   Width="30"  Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="SR"           HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_Code" Top="90" Left="30"  Width="100" Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="Item Code"     HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_Name" Top="90" Left="130" Width="186" Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="Item Name"     HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_Qty"  Top="90" Left="316" Width="110" Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="Scheduled Qty" HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_Unit" Top="90" Left="426" Width="60"  Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="UOM"           HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_Mode" Top="90" Left="486" Width="120" Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="Transport Mode" HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SCH_Date" Top="90" Left="606" Width="150" Height="20" Border.Lines="All" Border.Color="0, 0, 0" Fill.Color="220, 220, 220" Text="Delivery Date" HorzAlign="Center" VertAlign="Center" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+    </ReportTitleBand>
+
+    <DataBand Name="ScheduleItems" Width="756" Height="20" CanGrow="true" DataSource="ScheduleData">
+      <TextObject Name="SD_SNo"  Left="0"   Width="30"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Left, Right, Bottom" Border.Color="0, 0, 0" Text="[ScheduleData.SerialNo]"     Padding="2, 2, 2, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"            TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SD_Code" Left="30"  Width="100" Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ScheduleData.ItemCode]"     Padding="3, 2, 2, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 7.5pt"          TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SD_Name" Left="130" Width="186" Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ScheduleData.ItemName]"     Padding="4, 2, 2, 2"                   VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SD_Qty"  Left="316" Width="110" Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ScheduleData.Quantity]"     Padding="2, 2, 6, 2" HorzAlign="Center"  VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SD_Unit" Left="426" Width="60"  Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ScheduleData.Unit]"         Padding="2, 2, 2, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt"            TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SD_Mode" Left="486" Width="120" Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ScheduleData.Transport]"    Padding="3, 2, 2, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 7.5pt"          TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SD_Date" Left="606" Width="150" Height="20" CanGrow="true" GrowToBottom="true" Border.Lines="Right, Bottom"       Border.Color="0, 0, 0" Text="[ScheduleData.DeliveryDate]" Padding="2, 2, 2, 2" HorzAlign="Center" VertAlign="Top" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+    </DataBand>
+
+    <PageFooterBand Name="SPageFooter" Width="756" Height="20">
+      <LineObject Name="SFtrLine" Top="2" Width="756" Border.Color="0, 0, 0" Border.Width="0.5"/>
+      <TextObject Name="SFtrLeft" Top="5" Left="0" Width="440" Height="14" Text="Print Date And Time :- [FormatDateTime(DateTime.UtcNow.AddHours(5.5), &quot;dd-MMM-yyyy HH:mm:ss tt&quot;)]" Font="Calibri, 8pt, style=Bold" TextFill.Color="0, 0, 0"/>
+      <TextObject Name="SFtrRight" Top="5" Left="440" Width="316" Height="14" Text="Page [Page#] of [TotalPages#]" HorzAlign="Right" Font="Calibri, 8pt" TextFill.Color="0, 0, 0"/>
+    </PageFooterBand>
+
+  </ReportPage>
+</Report>

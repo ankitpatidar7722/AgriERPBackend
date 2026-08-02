@@ -1,0 +1,34 @@
+# ==============================================================================
+#  AgriERP Backend (.NET 8)  |  .gitignore
+# ==============================================================================
+
+# --------------------------- Secrets (never commit) ---------------------------
+# Local-dev DB connection string + JWT signing key. Each machine keeps its own;
+# see appsettings.Development.example.json for the shape. Test scripts read the
+# password from the AGRIERP_SQL_PASSWORD environment variable.
+**/appsettings.Development.json
+**/appsettings.test.json
+**/appsettings.*.local.json
+**/*.secrets.json
+
+# ------------------------------ Build output ----------------------------------
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+[Tt]est[Rr]esult*/
+TestResults/
+
+# --------------------------------- Logs ---------------------------------------
+**/logs/
+*.log
+.run-logs/
+
+# ------------------------------- OS / editor ----------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

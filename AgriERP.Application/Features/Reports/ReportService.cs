@@ -1,0 +1,393 @@
+using AgriERP.Application.Common.Extensions;
+using AgriERP.Application.Common.Interfaces;
+using AgriERP.Domain.Entities.Purchases;
+using AgriERP.Domain.Entities.Sales;
+using AgriERP.Domain.Enums;
+using AgriERP.Domain.ReadModels;
+using Microsoft.EntityFrameworkCore;
+
+namespace AgriERP.Application.Features.Reports;
+
+/* ---------------------------- DTOs ---------------------------- */
+
+public class DateRangeRequest
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+}
+
+public class SalesReportRowDto
+{
+    public DateTime InvoiceDate { get; set; }
+    public long InvoiceCount { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal TotalSales { get; set; }
+    public decimal AmountReceived { get; set; }
+    public decimal CreditGiven { get; set; }
+    public int CashInvoiceCount { get; set; }
+    public int CreditInvoiceCount { get; set; }
+}
+
+public class PurchaseReportRowDto
+{
+    public DateTime PurchaseDate { get; set; }
+    public long BillCount { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal TotalPurchase { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal AmountDue { get; set; }
+}
+
+public class ProfitReportRowDto
+{
+    public DateTime InvoiceDate { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal TotalCost { get; set; }
+    public decimal GrossProfit { get; set; }
+
+    /// <summary>Margin on revenue. Zero when there were no sales that day.</summary>
+    public decimal MarginPercent { get; set; }
+}
+
+public class ItemProfitRowDto
+{
+    public int ItemId { get; set; }
+    public string ItemName { get; set; } = string.Empty;
+    public string ItemSubGroupName { get; set; } = string.Empty;
+    public decimal QuantitySold { get; set; }
+    public decimal SalesValue { get; set; }
+    public decimal CostValue { get; set; }
+    public decimal Profit { get; set; }
+    public decimal MarginPercent { get; set; }
+}
+
+public class GstSummaryRowDto
+{
+    public string? HsnCode { get; set; }
+    public decimal GstPercent { get; set; }
+    public bool IsInterState { get; set; }
+    public long DocumentCount { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal CgstAmount { get; set; }
+    public decimal SgstAmount { get; set; }
+    public decimal IgstAmount { get; set; }
+    public decimal TotalTax { get; set; }
+    public decimal TotalAmount { get; set; }
+}
+
+public class GstReturnDto
+{
+    public DateRangeRequest Period { get; set; } = new();
+    public IReadOnlyList<GstSummaryRowDto> OutwardSupplies { get; set; } = Array.Empty<GstSummaryRowDto>();
+    public IReadOnlyList<GstSummaryRowDto> InwardSupplies { get; set; } = Array.Empty<GstSummaryRowDto>();
+
+    /// <summary>Output tax minus input credit. Positive means tax is payable.</summary>
+    public decimal NetTaxPayable { get; set; }
+}
+
+public class StockValuationDto
+{
+    public long ItemCount { get; set; }
+    public decimal TotalQuantity { get; set; }
+    public decimal ValueAtCost { get; set; }
+    public decimal ValueAtMrp { get; set; }
+    public decimal PotentialMargin { get; set; }
+}
+
+public class CompanyWiseStockDto
+{
+    public int? CompanyId { get; set; }
+    public string CompanyName { get; set; } = string.Empty;
+    public long ItemCount { get; set; }
+    public decimal TotalQuantity { get; set; }
+    public decimal StockValueAtCost { get; set; }
+    public decimal StockValueAtMrp { get; set; }
+}
+
+/* ---------------------------- service ---------------------------- */
+
+public interface IReportService
+{
+    // inventory
+    Task<IReadOnlyList<ItemStockView>> GetCurrentStockAsync(int? itemSubGroupId, int? companyId, CancellationToken ct = default);
+    Task<IReadOnlyList<ItemStockView>> GetLowStockAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<ItemStockView>> GetOutOfStockAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<BatchStockView>> GetNearExpiryAsync(int withinDays, CancellationToken ct = default);
+    Task<IReadOnlyList<BatchStockView>> GetExpiredAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<ItemSubGroupWiseStockView>> GetItemSubGroupWiseStockAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<CompanyWiseStockDto>> GetCompanyWiseStockAsync(CancellationToken ct = default);
+    Task<StockValuationDto> GetStockValuationAsync(CancellationToken ct = default);
+
+    // financial
+    Task<IReadOnlyList<SalesReportRowDto>> GetSalesReportAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<IReadOnlyList<PurchaseReportRowDto>> GetPurchaseReportAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<IReadOnlyList<ProfitReportRowDto>> GetProfitReportAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<IReadOnlyList<ItemProfitRowDto>> GetItemProfitAsync(DateRangeRequest range, int topCount, CancellationToken ct = default);
+    Task<GstReturnDto> GetGstReturnAsync(DateRangeRequest range, CancellationToken ct = default);
+}
+
+public class ReportService : IReportService
+{
+    private readonly IUnitOfWork _uow;
+    private readonly IDateTimeProvider _clock;
+
+    public ReportService(IUnitOfWork uow, IDateTimeProvider clock)
+    {
+        _uow = uow;
+        _clock = clock;
+    }
+
+    /* ---------------------------- inventory ---------------------------- */
+
+    public async Task<IReadOnlyList<ItemStockView>> GetCurrentStockAsync(
+        int? itemSubGroupId, int? companyId, CancellationToken ct = default)
+        => await _uow.Repository<ItemStockView>().Query()
+            .Where(s => s.IsActive)
+            .WhereIf(itemSubGroupId.HasValue, s => s.ItemSubGroupId == itemSubGroupId)
+            .WhereIf(companyId.HasValue, s => s.CompanyId == companyId)
+            .OrderBy(s => s.ItemSubGroupName).ThenBy(s => s.ItemName)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ItemStockView>> GetLowStockAsync(CancellationToken ct = default)
+        => await _uow.Repository<ItemStockView>().Query()
+            .Where(s => s.IsActive && s.StockStatus == "LowStock")
+            // Deepest shortfall first: that is the reorder list in priority order.
+            .OrderBy(s => s.CurrentStock - s.MinStockLevel)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ItemStockView>> GetOutOfStockAsync(CancellationToken ct = default)
+        => await _uow.Repository<ItemStockView>().Query()
+            .Where(s => s.IsActive && s.CurrentStock <= 0)
+            .OrderBy(s => s.ItemSubGroupName).ThenBy(s => s.ItemName)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<BatchStockView>> GetNearExpiryAsync(
+        int withinDays, CancellationToken ct = default)
+    {
+        var cutoff = _clock.Today.AddDays(withinDays);
+
+        return await _uow.Repository<BatchStockView>().Query()
+            .Where(b => b.CurrentQty > 0
+                        && b.ExpiryDate != null
+                        // Already-expired stock belongs on the expired report,
+                        // where the action is a write-off rather than a push to sell.
+                        && b.ExpiryDate >= _clock.Today
+                        && b.ExpiryDate <= cutoff)
+            .OrderBy(b => b.ExpiryDate)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<BatchStockView>> GetExpiredAsync(CancellationToken ct = default)
+        => await _uow.Repository<BatchStockView>().Query()
+            .Where(b => b.CurrentQty > 0 && b.ExpiryDate != null && b.ExpiryDate < _clock.Today)
+            .OrderBy(b => b.ExpiryDate)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ItemSubGroupWiseStockView>> GetItemSubGroupWiseStockAsync(CancellationToken ct = default)
+        => await _uow.Repository<ItemSubGroupWiseStockView>().Query()
+            .Where(c => c.ItemCount > 0)
+            .OrderByDescending(c => c.StockValueAtCost)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<CompanyWiseStockDto>> GetCompanyWiseStockAsync(CancellationToken ct = default)
+        // Grouped from vw_ItemStock rather than reading vw_CompanyWiseStock,
+        // so items with no manufacturer set still appear under "Unbranded"
+        // instead of vanishing from the total.
+        => await _uow.Repository<ItemStockView>().Query()
+            .Where(s => s.IsActive)
+            .GroupBy(s => new { s.CompanyId, s.CompanyName })
+            .Select(g => new CompanyWiseStockDto
+            {
+                CompanyId        = g.Key.CompanyId,
+                CompanyName      = g.Key.CompanyName ?? "Unbranded",
+                ItemCount     = g.Count(),
+                TotalQuantity    = g.Sum(s => s.CurrentStock),
+                StockValueAtCost = g.Sum(s => s.StockValueAtCost),
+                StockValueAtMrp  = g.Sum(s => s.StockValueAtMrp)
+            })
+            .OrderByDescending(c => c.StockValueAtCost)
+            .ToListAsync(ct);
+
+    public async Task<StockValuationDto> GetStockValuationAsync(CancellationToken ct = default)
+    {
+        var totals = await _uow.Repository<ItemStockView>().Query()
+            .Where(s => s.IsActive && s.CurrentStock > 0)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                ItemCount  = g.LongCount(),
+                TotalQuantity = g.Sum(s => s.CurrentStock),
+                ValueAtCost   = g.Sum(s => s.StockValueAtCost),
+                ValueAtMrp    = g.Sum(s => s.StockValueAtMrp)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return new StockValuationDto
+        {
+            ItemCount    = totals?.ItemCount ?? 0,
+            TotalQuantity   = totals?.TotalQuantity ?? 0m,
+            ValueAtCost     = totals?.ValueAtCost ?? 0m,
+            ValueAtMrp      = totals?.ValueAtMrp ?? 0m,
+            PotentialMargin = (totals?.ValueAtMrp ?? 0m) - (totals?.ValueAtCost ?? 0m)
+        };
+    }
+
+    /* ---------------------------- financial ---------------------------- */
+
+    public async Task<IReadOnlyList<SalesReportRowDto>> GetSalesReportAsync(
+        DateRangeRequest range, CancellationToken ct = default)
+        => await _uow.Repository<DailySalesSummaryView>().Query()
+            .Where(s => s.InvoiceDate >= range.FromDate.Date && s.InvoiceDate <= range.ToDate.Date)
+            .OrderBy(s => s.InvoiceDate)
+            .Select(s => new SalesReportRowDto
+            {
+                InvoiceDate        = s.InvoiceDate,
+                InvoiceCount       = s.InvoiceCount,
+                TaxableAmount      = s.TaxableAmount,
+                TaxAmount          = s.TaxAmount,
+                TotalSales         = s.TotalSales,
+                AmountReceived     = s.AmountReceived,
+                CreditGiven        = s.CreditGiven,
+                CashInvoiceCount   = s.CashInvoiceCount,
+                CreditInvoiceCount = s.CreditInvoiceCount
+            })
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<PurchaseReportRowDto>> GetPurchaseReportAsync(
+        DateRangeRequest range, CancellationToken ct = default)
+        => await _uow.Repository<DailyPurchaseSummaryView>().Query()
+            .Where(p => p.PurchaseDate >= range.FromDate.Date && p.PurchaseDate <= range.ToDate.Date)
+            .OrderBy(p => p.PurchaseDate)
+            .Select(p => new PurchaseReportRowDto
+            {
+                PurchaseDate  = p.PurchaseDate,
+                BillCount     = p.BillCount,
+                TaxableAmount = p.TaxableAmount,
+                TaxAmount     = p.TaxAmount,
+                TotalPurchase = p.TotalPurchase,
+                AmountPaid    = p.AmountPaid,
+                AmountDue     = p.AmountDue
+            })
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ProfitReportRowDto>> GetProfitReportAsync(
+        DateRangeRequest range, CancellationToken ct = default)
+    {
+        var rows = await _uow.Repository<DailySalesSummaryView>().Query()
+            .Where(s => s.InvoiceDate >= range.FromDate.Date && s.InvoiceDate <= range.ToDate.Date)
+            .OrderBy(s => s.InvoiceDate)
+            .Select(s => new
+            {
+                s.InvoiceDate, s.TaxableAmount, s.TotalCost, s.GrossProfit
+            })
+            .ToListAsync(ct);
+
+        // Margin is computed after materialisation so the divide-by-zero guard
+        // is plain C# rather than a CASE expression the provider has to translate.
+        return rows.Select(r => new ProfitReportRowDto
+        {
+            InvoiceDate   = r.InvoiceDate,
+            TaxableAmount = r.TaxableAmount,
+            TotalCost     = r.TotalCost,
+            GrossProfit   = r.GrossProfit,
+            MarginPercent = r.TaxableAmount > 0
+                ? Math.Round(r.GrossProfit / r.TaxableAmount * 100m, 2, MidpointRounding.AwayFromZero)
+                : 0m
+        }).ToList();
+    }
+
+    public async Task<IReadOnlyList<ItemProfitRowDto>> GetItemProfitAsync(
+        DateRangeRequest range, int topCount, CancellationToken ct = default)
+    {
+        var rows = await _uow.Repository<SalesDetail>().Query()
+            .Where(d => d.Sale!.Status == DocumentStatus.Posted
+                        && d.Sale.InvoiceDate >= range.FromDate.Date
+                        && d.Sale.InvoiceDate <= range.ToDate.Date)
+            .GroupBy(d => new { d.ItemId, d.Item!.ItemName, ItemSubGroupName = d.Item.ItemSubGroup!.ItemSubGroupName })
+            .Select(g => new
+            {
+                g.Key.ItemId,
+                g.Key.ItemName,
+                g.Key.ItemSubGroupName,
+                QuantitySold = g.Sum(d => d.TotalQuantity),
+                SalesValue   = g.Sum(d => d.TaxableAmount),
+                CostValue    = g.Sum(d => d.CostAmount),
+                Profit       = g.Sum(d => d.LineProfit)
+            })
+            .OrderByDescending(g => g.Profit)
+            .Take(topCount)
+            .ToListAsync(ct);
+
+        return rows.Select(r => new ItemProfitRowDto
+        {
+            ItemId     = r.ItemId,
+            ItemName   = r.ItemName,
+            ItemSubGroupName  = r.ItemSubGroupName,
+            QuantitySold  = r.QuantitySold,
+            SalesValue    = r.SalesValue,
+            CostValue     = r.CostValue,
+            Profit        = r.Profit,
+            MarginPercent = r.SalesValue > 0
+                ? Math.Round(r.Profit / r.SalesValue * 100m, 2, MidpointRounding.AwayFromZero)
+                : 0m
+        }).ToList();
+    }
+
+    public async Task<GstReturnDto> GetGstReturnAsync(DateRangeRequest range, CancellationToken ct = default)
+    {
+        var outward = await _uow.Repository<SalesDetail>().Query()
+            .Where(d => d.Sale!.Status == DocumentStatus.Posted
+                        && d.Sale.InvoiceDate >= range.FromDate.Date
+                        && d.Sale.InvoiceDate <= range.ToDate.Date)
+            .GroupBy(d => new { d.HsnCode, d.GstPercent, d.Sale!.IsInterState })
+            .Select(g => new GstSummaryRowDto
+            {
+                HsnCode       = g.Key.HsnCode,
+                GstPercent    = g.Key.GstPercent,
+                IsInterState  = g.Key.IsInterState,
+                DocumentCount = g.Select(d => d.SaleId).Distinct().LongCount(),
+                TaxableAmount = g.Sum(d => d.TaxableAmount),
+                CgstAmount    = g.Sum(d => d.CgstAmount),
+                SgstAmount    = g.Sum(d => d.SgstAmount),
+                IgstAmount    = g.Sum(d => d.IgstAmount),
+                TotalTax      = g.Sum(d => d.CgstAmount + d.SgstAmount + d.IgstAmount + d.CessAmount),
+                TotalAmount   = g.Sum(d => d.LineTotal)
+            })
+            .OrderBy(r => r.HsnCode).ThenBy(r => r.GstPercent)
+            .ToListAsync(ct);
+
+        var inward = await _uow.Repository<PurchaseDetail>().Query()
+            .Where(d => d.Purchase!.Status == DocumentStatus.Posted
+                        && d.Purchase.PurchaseDate >= range.FromDate.Date
+                        && d.Purchase.PurchaseDate <= range.ToDate.Date)
+            .GroupBy(d => new { d.HsnCode, d.GstPercent, d.Purchase!.IsInterState })
+            .Select(g => new GstSummaryRowDto
+            {
+                HsnCode       = g.Key.HsnCode,
+                GstPercent    = g.Key.GstPercent,
+                IsInterState  = g.Key.IsInterState,
+                DocumentCount = g.Select(d => d.PurchaseId).Distinct().LongCount(),
+                TaxableAmount = g.Sum(d => d.TaxableAmount),
+                CgstAmount    = g.Sum(d => d.CgstAmount),
+                SgstAmount    = g.Sum(d => d.SgstAmount),
+                IgstAmount    = g.Sum(d => d.IgstAmount),
+                TotalTax      = g.Sum(d => d.CgstAmount + d.SgstAmount + d.IgstAmount + d.CessAmount),
+                TotalAmount   = g.Sum(d => d.LineTotal)
+            })
+            .OrderBy(r => r.HsnCode).ThenBy(r => r.GstPercent)
+            .ToListAsync(ct);
+
+        return new GstReturnDto
+        {
+            Period          = range,
+            OutwardSupplies = outward,
+            InwardSupplies  = inward,
+            // Output tax collected on sales, less input credit on purchases.
+            // This is an indicative figure for the shop, not a filed return -
+            // reverse charge, ineligible credit and adjustments are the CA's call.
+            NetTaxPayable   = outward.Sum(o => o.TotalTax) - inward.Sum(i => i.TotalTax)
+        };
+    }
+}
