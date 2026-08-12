@@ -488,6 +488,8 @@ public class ItemService : IItemService
             ShortName      = x.Item.ShortName,
             Description    = x.Item.TechnicalName,
             Barcode        = x.Item.Barcode,
+            ItemGroupName    = x.Item.ItemGroup!.ItemGroupName,
+            ItemSubGroupName = x.Item.ItemSubGroup!.ItemSubGroupName,
             UnitId         = x.Item.UnitId,
             UnitCode       = x.Stock.UnitCode,
             SellingRate    = x.Item.SellingRate,

@@ -25,6 +25,9 @@ public class PurchaseRequisitionLineDto
 {
     public long RequisitionDetailId { get; set; }
     public int ItemId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemGroupName { get; set; } = string.Empty;
+    public string ItemSubGroupName { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public int UnitId { get; set; }
     public string UnitCode { get; set; } = string.Empty;
@@ -58,6 +61,31 @@ public class PurchaseRequisitionDto
     public IReadOnlyList<string> ItemNames { get; set; } = Array.Empty<string>();
 
     public IReadOnlyList<PurchaseRequisitionLineDto> Lines { get; set; } = Array.Empty<PurchaseRequisitionLineDto>();
+}
+
+/// <summary>
+/// One requisition LINE flattened with its parent's header, for the item-wise
+/// requisition list: every item is its own row, each carrying its RequisitionId.
+/// </summary>
+public class PurchaseRequisitionItemRowDto
+{
+    public long RequisitionId { get; set; }
+    public string RequisitionNumber { get; set; } = string.Empty;
+    public DateTime RequisitionDate { get; set; }
+    public int LocationId { get; set; }
+    public string LocationName { get; set; } = string.Empty;
+    public PurchaseRequisitionStatus Status { get; set; }
+
+    public long RequisitionDetailId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public string ItemGroupName { get; set; } = string.Empty;
+    public string ItemSubGroupName { get; set; } = string.Empty;
+    public string UnitCode { get; set; } = string.Empty;
+    public decimal RequiredQty { get; set; }
+    public decimal PendingQty { get; set; }
+    public decimal EstimatedRate { get; set; }
+    public decimal EstimatedAmount { get; set; }
 }
 
 public class PurchaseRequisitionQueryParameters : QueryParameters

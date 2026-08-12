@@ -96,6 +96,18 @@ public class CustomerLedgerViewConfiguration : IEntityTypeConfiguration<Customer
     }
 }
 
+public class SupplierLedgerViewConfiguration : IEntityTypeConfiguration<SupplierLedgerView>
+{
+    public void Configure(EntityTypeBuilder<SupplierLedgerView> b)
+    {
+        b.HasNoKey().ToView("vw_SupplierLedger");
+        b.Property(x => x.TransactionDate).AsDate();
+        b.Property(x => x.Debit).AsAmount();
+        b.Property(x => x.Credit).AsAmount();
+        b.Property(x => x.RunningBalance).AsAmount();
+    }
+}
+
 public class SupplierOutstandingViewConfiguration : IEntityTypeConfiguration<SupplierOutstandingView>
 {
     public void Configure(EntityTypeBuilder<SupplierOutstandingView> b)

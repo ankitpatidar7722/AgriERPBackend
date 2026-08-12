@@ -5,16 +5,18 @@ using Microsoft.EntityFrameworkCore;
 // GetDbTransaction() is an extension on IDbContextTransaction declared here.
 using Microsoft.EntityFrameworkCore.Storage;
 using System.Data;
+using System.Data.Common;
 
 namespace AgriERP.Persistence.Services;
 
 /// <summary>
-/// Reads usp_DashboardSummary.
+/// Reads the six dashboard blocks in one round trip on both providers:
+///   SQL Server  -> usp_DashboardSummary returns six result sets from one exec.
+///   PostgreSQL  -> fn_dashboard_summary opens six refcursors; we FETCH each.
 ///
-/// Raw ADO rather than EF: the procedure returns six differently-shaped result
-/// sets from one execution, which EF's FromSql cannot express. Reading them
-/// with a DbDataReader keeps the single round trip that makes the procedure
-/// worth having.
+/// The row-parsing is identical - the function aliases every column exactly as
+/// the procedure names it - so only the plumbing that produces the six readers
+/// differs by provider.
 /// </summary>
 public class DashboardService : IDashboardService
 {
@@ -22,171 +24,220 @@ public class DashboardService : IDashboardService
 
     public DashboardService(AgriErpDbContext context) => _context = context;
 
-    public async Task<DashboardDto> GetAsync(
-        DateTime? asOnDate, int topCount, int graphMonths, CancellationToken ct = default)
+    public Task<DashboardDto> GetAsync(
+        DateTime? asOnDate, int topCount, int graphMonths,
+        DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken ct = default)
+        => _context.Database.IsNpgsql()
+            ? GetNpgsqlAsync(asOnDate, topCount, graphMonths, fromDate, toDate, ct)
+            : GetSqlServerAsync(asOnDate, topCount, graphMonths, fromDate, toDate, ct);
+
+    /*----------------------------- SQL Server ------------------------------*/
+    private async Task<DashboardDto> GetSqlServerAsync(
+        DateTime? asOnDate, int topCount, int graphMonths,
+        DateTime? fromDate, DateTime? toDate, CancellationToken ct)
     {
         var dashboard = new DashboardDto();
-
         var connection = _context.Database.GetDbConnection();
         var wasClosed = connection.State == ConnectionState.Closed;
-
-        if (wasClosed)
-            await connection.OpenAsync(ct);
-
+        if (wasClosed) await connection.OpenAsync(ct);
         try
         {
             await using var command = connection.CreateCommand();
             command.CommandText = "usp_DashboardSummary";
             command.CommandType = CommandType.StoredProcedure;
-
-            // Enlists in the ambient EF transaction when one is open, so a
-            // dashboard read inside a larger unit of work does not deadlock
-            // against it.
             if (_context.Database.CurrentTransaction is { } transaction)
                 command.Transaction = transaction.GetDbTransaction();
 
-            command.Parameters.Add(new SqlParameter("@AsOnDate", SqlDbType.Date)
-            {
-                Value = (object?)asOnDate?.Date ?? DBNull.Value
-            });
+            command.Parameters.Add(new SqlParameter("@AsOnDate", SqlDbType.Date) { Value = (object?)asOnDate?.Date ?? DBNull.Value });
             command.Parameters.Add(new SqlParameter("@TopCount", SqlDbType.Int) { Value = topCount });
             command.Parameters.Add(new SqlParameter("@GraphMonths", SqlDbType.Int) { Value = graphMonths });
+            command.Parameters.Add(new SqlParameter("@FromDate", SqlDbType.Date) { Value = (object?)fromDate?.Date ?? DBNull.Value });
+            command.Parameters.Add(new SqlParameter("@ToDate", SqlDbType.Date) { Value = (object?)toDate?.Date ?? DBNull.Value });
 
             await using var reader = await command.ExecuteReaderAsync(ct);
 
-            // 1. headline figures
-            if (await reader.ReadAsync(ct))
-            {
-                dashboard.Headline = new DashboardHeadlineDto
-                {
-                    AsOnDate          = reader.GetDateTime(reader.GetOrdinal("AsOnDate")),
-                    TodaySales        = GetDecimal(reader, "TodaySales"),
-                    TodayInvoiceCount = GetInt64(reader, "TodayInvoiceCount"),
-                    TodayProfit       = GetDecimal(reader, "TodayProfit"),
-                    MonthSales        = GetDecimal(reader, "MonthSales"),
-                    MonthProfit       = GetDecimal(reader, "MonthProfit"),
-                    TodayPurchase     = GetDecimal(reader, "TodayPurchase"),
-                    MonthPurchase     = GetDecimal(reader, "MonthPurchase"),
-                    StockValueAtCost  = GetDecimal(reader, "StockValueAtCost"),
-                    StockValueAtMrp   = GetDecimal(reader, "StockValueAtMrp"),
-                    CustomerDue       = GetDecimal(reader, "CustomerDue"),
-                    SupplierDue       = GetDecimal(reader, "SupplierDue"),
-                    MonthExpenses     = GetDecimal(reader, "MonthExpenses")
-                };
-            }
-
-            // 2. stock alerts
-            if (await reader.NextResultAsync(ct) && await reader.ReadAsync(ct))
-            {
-                dashboard.Alerts = new DashboardAlertsDto
-                {
-                    LowStockCount        = GetInt64(reader, "LowStockCount"),
-                    OutOfStockCount      = GetInt64(reader, "OutOfStockCount"),
-                    ExpiredBatchCount    = GetInt64(reader, "ExpiredBatchCount"),
-                    NearExpiryBatchCount = GetInt64(reader, "NearExpiryBatchCount"),
-                    ExpiredStockValue    = GetDecimal(reader, "ExpiredStockValue"),
-                    ActiveItemCount   = GetInt64(reader, "ActiveItemCount")
-                };
-            }
-
-            // 3. recent bills
-            var recentBills = new List<DashboardRecentBillDto>();
-            if (await reader.NextResultAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    recentBills.Add(new DashboardRecentBillDto
-                    {
-                        SaleId         = GetInt64(reader, "SaleId"),
-                        InvoiceNumber  = GetString(reader, "InvoiceNumber"),
-                        InvoiceDate    = reader.GetDateTime(reader.GetOrdinal("InvoiceDate")),
-                        CustomerName   = GetString(reader, "CustomerName"),
-                        Village        = GetString(reader, "Village"),
-                        SaleType       = GetString(reader, "SaleType"),
-                        PaymentType    = GetString(reader, "PaymentType"),
-                        GrandTotal     = GetDecimal(reader, "GrandTotal"),
-                        ReceivedAmount = GetDecimal(reader, "ReceivedAmount"),
-                        BalanceAmount  = GetDecimal(reader, "BalanceAmount"),
-                        PaymentStatus  = GetString(reader, "PaymentStatus")
-                    });
-                }
-            }
-            dashboard.RecentBills = recentBills;
-
-            // 4. top selling items
-            var topItems = new List<DashboardTopItemDto>();
-            if (await reader.NextResultAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    topItems.Add(new DashboardTopItemDto
-                    {
-                        ItemId    = GetInt32(reader, "ItemId"),
-                        ItemCode  = GetString(reader, "ItemCode"),
-                        ItemName  = GetString(reader, "ItemName"),
-                        ItemSubGroupName = GetString(reader, "ItemSubGroupName"),
-                        CompanyName  = GetString(reader, "CompanyName"),
-                        UnitCode     = GetString(reader, "UnitCode"),
-                        QuantitySold = GetDecimal(reader, "QuantitySold"),
-                        SalesValue   = GetDecimal(reader, "SalesValue"),
-                        Profit       = GetDecimal(reader, "Profit")
-                    });
-                }
-            }
-            dashboard.TopItems = topItems;
-
-            // 5. monthly trend
-            var monthlyTrend = new List<DashboardMonthPointDto>();
-            if (await reader.NextResultAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    monthlyTrend.Add(new DashboardMonthPointDto
-                    {
-                        MonthStart     = reader.GetDateTime(reader.GetOrdinal("MonthStart")),
-                        MonthLabel     = GetString(reader, "MonthLabel"),
-                        SalesAmount    = GetDecimal(reader, "SalesAmount"),
-                        ProfitAmount   = GetDecimal(reader, "ProfitAmount"),
-                        PurchaseAmount = GetDecimal(reader, "PurchaseAmount"),
-                        ExpenseAmount  = GetDecimal(reader, "ExpenseAmount")
-                    });
-                }
-            }
-            dashboard.MonthlyTrend = monthlyTrend;
-
-            // 6. itemSubGroup-wise stock
-            var itemSubGroupStock = new List<DashboardItemSubGroupStockDto>();
-            if (await reader.NextResultAsync(ct))
-            {
-                while (await reader.ReadAsync(ct))
-                {
-                    itemSubGroupStock.Add(new DashboardItemSubGroupStockDto
-                    {
-                        ItemSubGroupId       = GetInt32(reader, "ItemSubGroupId"),
-                        ItemSubGroupName     = GetString(reader, "ItemSubGroupName"),
-                        ItemCount     = GetInt64(reader, "ItemCount"),
-                        InStockCount     = GetInt32(reader, "InStockCount"),
-                        OutOfStockCount  = GetInt32(reader, "OutOfStockCount"),
-                        LowStockCount    = GetInt32(reader, "LowStockCount"),
-                        TotalQuantity    = GetDecimal(reader, "TotalQuantity"),
-                        StockValueAtCost = GetDecimal(reader, "StockValueAtCost"),
-                        StockValueAtMrp  = GetDecimal(reader, "StockValueAtMrp")
-                    });
-                }
-            }
-            dashboard.ItemSubGroupStock = itemSubGroupStock;
+            if (await reader.ReadAsync(ct)) dashboard.Headline = ParseHeadline(reader);
+            if (await reader.NextResultAsync(ct) && await reader.ReadAsync(ct)) dashboard.Alerts = ParseAlerts(reader);
+            if (await reader.NextResultAsync(ct)) dashboard.RecentBills = await ReadAll(reader, ParseRecentBill, ct);
+            if (await reader.NextResultAsync(ct)) dashboard.TopItems = await ReadAll(reader, ParseTopItem, ct);
+            if (await reader.NextResultAsync(ct)) dashboard.MonthlyTrend = await ReadAll(reader, ParseMonthPoint, ct);
+            if (await reader.NextResultAsync(ct)) dashboard.ItemSubGroupStock = await ReadAll(reader, ParseItemSubGroupStock, ct);
         }
         finally
         {
-            if (wasClosed)
-                await connection.CloseAsync();
+            if (wasClosed) await connection.CloseAsync();
         }
-
         return dashboard;
     }
 
-    // SUM() over no rows returns NULL, and several dashboard tiles legitimately
-    // have no rows on a quiet day. These readers turn that into 0 rather than
+    /*----------------------------- PostgreSQL ------------------------------*/
+    private async Task<DashboardDto> GetNpgsqlAsync(
+        DateTime? asOnDate, int topCount, int graphMonths,
+        DateTime? fromDate, DateTime? toDate, CancellationToken ct)
+    {
+        var dashboard = new DashboardDto();
+        var connection = _context.Database.GetDbConnection();
+        var wasClosed = connection.State == ConnectionState.Closed;
+        if (wasClosed) await connection.OpenAsync(ct);
+
+        // Refcursors are only valid inside a transaction. Reuse the caller's if
+        // one is open, otherwise run in a short one of our own.
+        var ownTransaction = _context.Database.CurrentTransaction is null;
+        var transaction = ownTransaction
+            ? await _context.Database.BeginTransactionAsync(ct)
+            : _context.Database.CurrentTransaction!;
+        try
+        {
+            await using (var call = connection.CreateCommand())
+            {
+                call.Transaction = transaction.GetDbTransaction();
+                call.CommandText =
+                    "SELECT fn_dashboard_summary(@AsOnDate::date, @TopCount::int, @GraphMonths::int, @FromDate::date, @ToDate::date)";
+                AddParam(call, "AsOnDate", (object?)asOnDate?.Date ?? DBNull.Value);
+                AddParam(call, "TopCount", topCount);
+                AddParam(call, "GraphMonths", graphMonths);
+                AddParam(call, "FromDate", (object?)fromDate?.Date ?? DBNull.Value);
+                AddParam(call, "ToDate", (object?)toDate?.Date ?? DBNull.Value);
+                await call.ExecuteNonQueryAsync(ct);   // opens the six cursors
+            }
+
+            dashboard.Headline          = await FetchOne(connection, transaction, "dash_headline", ParseHeadline, ct) ?? new DashboardHeadlineDto();
+            dashboard.Alerts            = await FetchOne(connection, transaction, "dash_alerts",   ParseAlerts,   ct) ?? new DashboardAlertsDto();
+            dashboard.RecentBills       = await FetchAll(connection, transaction, "dash_bills",    ParseRecentBill, ct);
+            dashboard.TopItems          = await FetchAll(connection, transaction, "dash_items",    ParseTopItem, ct);
+            dashboard.MonthlyTrend      = await FetchAll(connection, transaction, "dash_trend",    ParseMonthPoint, ct);
+            dashboard.ItemSubGroupStock = await FetchAll(connection, transaction, "dash_category", ParseItemSubGroupStock, ct);
+
+            if (ownTransaction) await transaction.CommitAsync(ct);
+        }
+        finally
+        {
+            if (ownTransaction) await transaction.DisposeAsync();
+            if (wasClosed) await connection.CloseAsync();
+        }
+        return dashboard;
+    }
+
+    /*----------------------------- row parsers -----------------------------*/
+    private static DashboardHeadlineDto ParseHeadline(IDataRecord r) => new()
+    {
+        AsOnDate          = r.GetDateTime(r.GetOrdinal("AsOnDate")),
+        TodaySales        = GetDecimal(r, "TodaySales"),
+        TodayInvoiceCount = GetInt64(r, "TodayInvoiceCount"),
+        TodayProfit       = GetDecimal(r, "TodayProfit"),
+        MonthSales        = GetDecimal(r, "MonthSales"),
+        MonthProfit       = GetDecimal(r, "MonthProfit"),
+        TodayPurchase     = GetDecimal(r, "TodayPurchase"),
+        MonthPurchase     = GetDecimal(r, "MonthPurchase"),
+        StockValueAtCost  = GetDecimal(r, "StockValueAtCost"),
+        StockValueAtMrp   = GetDecimal(r, "StockValueAtMrp"),
+        CustomerDue       = GetDecimal(r, "CustomerDue"),
+        SupplierDue       = GetDecimal(r, "SupplierDue"),
+        MonthExpenses     = GetDecimal(r, "MonthExpenses")
+    };
+
+    private static DashboardAlertsDto ParseAlerts(IDataRecord r) => new()
+    {
+        LowStockCount        = GetInt64(r, "LowStockCount"),
+        OutOfStockCount      = GetInt64(r, "OutOfStockCount"),
+        ExpiredBatchCount    = GetInt64(r, "ExpiredBatchCount"),
+        NearExpiryBatchCount = GetInt64(r, "NearExpiryBatchCount"),
+        ExpiredStockValue    = GetDecimal(r, "ExpiredStockValue"),
+        ActiveItemCount      = GetInt64(r, "ActiveItemCount")
+    };
+
+    private static DashboardRecentBillDto ParseRecentBill(IDataRecord r) => new()
+    {
+        SaleId         = GetInt64(r, "SaleId"),
+        InvoiceNumber  = GetString(r, "InvoiceNumber"),
+        InvoiceDate    = r.GetDateTime(r.GetOrdinal("InvoiceDate")),
+        CustomerName   = GetString(r, "CustomerName"),
+        Village        = GetString(r, "Village"),
+        SaleType       = GetString(r, "SaleType"),
+        PaymentType    = GetString(r, "PaymentType"),
+        GrandTotal     = GetDecimal(r, "GrandTotal"),
+        ReceivedAmount = GetDecimal(r, "ReceivedAmount"),
+        BalanceAmount  = GetDecimal(r, "BalanceAmount"),
+        PaymentStatus  = GetString(r, "PaymentStatus")
+    };
+
+    private static DashboardTopItemDto ParseTopItem(IDataRecord r) => new()
+    {
+        ItemId           = GetInt32(r, "ItemId"),
+        ItemCode         = GetString(r, "ItemCode"),
+        ItemName         = GetString(r, "ItemName"),
+        ItemSubGroupName = GetString(r, "ItemSubGroupName"),
+        CompanyName      = GetString(r, "CompanyName"),
+        UnitCode         = GetString(r, "UnitCode"),
+        QuantitySold     = GetDecimal(r, "QuantitySold"),
+        SalesValue       = GetDecimal(r, "SalesValue"),
+        Profit           = GetDecimal(r, "Profit")
+    };
+
+    private static DashboardMonthPointDto ParseMonthPoint(IDataRecord r) => new()
+    {
+        MonthStart     = r.GetDateTime(r.GetOrdinal("MonthStart")),
+        MonthLabel     = GetString(r, "MonthLabel"),
+        SalesAmount    = GetDecimal(r, "SalesAmount"),
+        ProfitAmount   = GetDecimal(r, "ProfitAmount"),
+        PurchaseAmount = GetDecimal(r, "PurchaseAmount"),
+        ExpenseAmount  = GetDecimal(r, "ExpenseAmount")
+    };
+
+    private static DashboardItemSubGroupStockDto ParseItemSubGroupStock(IDataRecord r) => new()
+    {
+        ItemSubGroupId   = GetInt32(r, "ItemSubGroupId"),
+        ItemSubGroupName = GetString(r, "ItemSubGroupName"),
+        ItemCount        = GetInt64(r, "ItemCount"),
+        InStockCount     = GetInt32(r, "InStockCount"),
+        OutOfStockCount  = GetInt32(r, "OutOfStockCount"),
+        LowStockCount    = GetInt32(r, "LowStockCount"),
+        TotalQuantity    = GetDecimal(r, "TotalQuantity"),
+        StockValueAtCost = GetDecimal(r, "StockValueAtCost"),
+        StockValueAtMrp  = GetDecimal(r, "StockValueAtMrp")
+    };
+
+    /*----------------------------- plumbing --------------------------------*/
+    private static async Task<List<T>> ReadAll<T>(DbDataReader reader, Func<IDataRecord, T> parse, CancellationToken ct)
+    {
+        var list = new List<T>();
+        while (await reader.ReadAsync(ct)) list.Add(parse(reader));
+        return list;
+    }
+
+    private async Task<T?> FetchOne<T>(
+        DbConnection connection, IDbContextTransaction transaction, string cursor,
+        Func<IDataRecord, T> parse, CancellationToken ct) where T : class
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction.GetDbTransaction();
+        command.CommandText = "FETCH ALL IN " + cursor;
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? parse(reader) : null;
+    }
+
+    private async Task<List<T>> FetchAll<T>(
+        DbConnection connection, IDbContextTransaction transaction, string cursor,
+        Func<IDataRecord, T> parse, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction.GetDbTransaction();
+        command.CommandText = "FETCH ALL IN " + cursor;
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await ReadAll(reader, parse, ct);
+    }
+
+    private static void AddParam(DbCommand command, string name, object? value)
+    {
+        var p = command.CreateParameter();
+        p.ParameterName = name;
+        p.Value = value ?? DBNull.Value;
+        command.Parameters.Add(p);
+    }
+
+    // SUM() over no rows returns NULL, and several tiles legitimately have no
+    // rows on a quiet day. These readers turn that into 0/empty rather than
     // letting an empty shop crash its own dashboard.
     private static decimal GetDecimal(IDataRecord record, string name)
     {

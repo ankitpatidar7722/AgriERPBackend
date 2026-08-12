@@ -2,6 +2,7 @@ using AgriERP.Application.Common.Exceptions;
 using AgriERP.Shared.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Net;
 using System.Text.Json;
 using ApplicationValidationException = AgriERP.Application.Common.Exceptions.ValidationException;
@@ -116,21 +117,31 @@ public class ExceptionHandlingMiddleware
     }
 
     /// <summary>
-    /// Translates the SQL Server errors a user can actually cause into
-    /// language they can act on. Everything else keeps a generic message, so
-    /// schema details never reach the client.
+    /// Translates the database errors a user can actually cause into language
+    /// they can act on - the same conditions on either provider. Everything else
+    /// keeps a generic message, so schema details never reach the client.
     /// </summary>
     private static string DescribeDatabaseFailure(DbUpdateException exception)
-        => exception.InnerException is SqlException sql
-            ? sql.Number switch
+        => exception.InnerException switch
+        {
+            // ---- SQL Server ----
+            SqlException sql => sql.Number switch
             {
                 2601 or 2627 => "A record with these details already exists.",
                 547          => "This record is linked to other data and cannot be changed or removed.",
-                // 50024 is raised by usp_PostStockTransaction. Its message
-                // already names the item and the shortfall, so it is passed
-                // through verbatim.
+                // 50024 is raised by usp_PostStockTransaction; its message
+                // already names the item and the shortfall, so pass it through.
                 50024        => sql.Message,
                 _            => "The database rejected this change."
-            }
-            : "The database rejected this change.";
+            },
+            // ---- PostgreSQL (same conditions, native SQLSTATEs) ----
+            PostgresException pg => pg.SqlState switch
+            {
+                PostgresErrorCodes.UniqueViolation     => "A record with these details already exists.",
+                PostgresErrorCodes.ForeignKeyViolation => "This record is linked to other data and cannot be changed or removed.",
+                "AG024"                                => pg.MessageText,   // insufficient stock
+                _                                      => "The database rejected this change."
+            },
+            _ => "The database rejected this change."
+        };
 }

@@ -62,7 +62,7 @@ public class SaleConfiguration : IEntityTypeConfiguration<Sale>
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.Ignore(x => x.DisplayCustomerName);   // resolved in C#, not a column
 
@@ -192,7 +192,7 @@ public class SalesReturnConfiguration : IEntityTypeConfiguration<SalesReturn>
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId)
          .OnDelete(DeleteBehavior.Restrict);

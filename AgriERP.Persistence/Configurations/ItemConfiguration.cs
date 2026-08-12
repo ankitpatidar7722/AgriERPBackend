@@ -37,7 +37,7 @@ public class ItemConfiguration : IEntityTypeConfiguration<Item>
 
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.ItemGroup).WithMany().HasForeignKey(x => x.ItemGroupId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -97,7 +97,7 @@ public class ItemBatchConfiguration : IEntityTypeConfiguration<ItemBatch>
         b.Property(x => x.Remarks).HasMaxLength(300);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         // Convenience properties evaluated in C#, not columns.
         b.Ignore(x => x.IsExpired);

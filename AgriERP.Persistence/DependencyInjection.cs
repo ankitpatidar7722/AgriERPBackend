@@ -26,21 +26,52 @@ public static class DependencyInjection
 
         services.AddScoped<AuditableEntityInterceptor>();
 
+        // SqlServer stays the default, so existing deployments and the numbered
+        // T-SQL scripts keep working unchanged; PostgreSQL is opt-in via config.
+        var provider = configuration.GetValue<string>("Database:Provider") ?? "SqlServer";
+
         services.AddDbContext<AgriErpDbContext>((serviceProvider, options) =>
         {
-            options.UseSqlServer(connectionString, sql =>
+            switch (provider.Trim().ToLowerInvariant())
             {
-                sql.CommandTimeout(60);
+                case "postgresql":
+                case "postgres":
+                case "npgsql":
+                    options.UseNpgsql(connectionString, npgsql =>
+                    {
+                        npgsql.CommandTimeout(60);
 
-                // Retries around transient SQL failures. Transactions opened
-                // through IUnitOfWork.ExecuteInTransactionAsync go via the
-                // execution strategy, so a retry replays the whole unit rather
-                // than half of an invoice.
-                sql.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(5),
-                    errorNumbersToAdd: null);
-            });
+                        // Same transient-retry contract as SQL Server: a retry
+                        // replays the whole unit of work, never half an invoice.
+                        npgsql.EnableRetryOnFailure(
+                            maxRetryCount: 3,
+                            maxRetryDelay: TimeSpan.FromSeconds(5),
+                            errorCodesToAdd: null);
+                    });
+                    break;
+
+                case "sqlserver":
+                case "mssql":
+                    options.UseSqlServer(connectionString, sql =>
+                    {
+                        sql.CommandTimeout(60);
+
+                        // Retries around transient SQL failures. Transactions opened
+                        // through IUnitOfWork.ExecuteInTransactionAsync go via the
+                        // execution strategy, so a retry replays the whole unit rather
+                        // than half of an invoice.
+                        sql.EnableRetryOnFailure(
+                            maxRetryCount: 3,
+                            maxRetryDelay: TimeSpan.FromSeconds(5),
+                            errorNumbersToAdd: null);
+                    });
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unsupported Database:Provider '{provider}'. " +
+                        "Use 'SqlServer' (default) or 'PostgreSQL'.");
+            }
 
             options.AddInterceptors(serviceProvider.GetRequiredService<AuditableEntityInterceptor>());
         });

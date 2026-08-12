@@ -259,6 +259,32 @@ public class InvoicePrintDto
     public string AmountInWords { get; set; } = string.Empty;
 }
 
+/* --------------------------- sales order print -------------------------- */
+
+/// <summary>Customer identity shown on the printed sales order.</summary>
+public class SalesOrderCustomerDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Village { get; set; }
+    public string? Mobile { get; set; }
+    public string? GstNumber { get; set; }
+}
+
+/// <summary>
+/// The sales-order document: the shop letterhead (ShopMaster first), the
+/// customer block, the sale with its lines, its real GST and the amount in
+/// words. Unlike the tax invoice this does not bump the print count - a sales
+/// order is an order confirmation, not a fiscal reprint.
+/// </summary>
+public class SalesOrderPrintDto
+{
+    public ShopHeaderDto Shop { get; set; } = new();
+    public SaleDto Sale { get; set; } = new();
+    public SalesOrderCustomerDto Customer { get; set; } = new();
+    public IReadOnlyList<InvoiceTaxSummaryDto> TaxSummary { get; set; } = Array.Empty<InvoiceTaxSummaryDto>();
+    public string AmountInWords { get; set; } = string.Empty;
+}
+
 public class ShopHeaderDto
 {
     public string ShopName { get; set; } = string.Empty;

@@ -21,6 +21,9 @@ public class ItemLookupDto : LookupDto
 {
     public string? ShortName { get; set; }
     public string? Barcode { get; set; }
+    /// <summary>Parent group / sub-group names, shown on the purchase-order grid.</summary>
+    public string? ItemGroupName { get; set; }
+    public string? ItemSubGroupName { get; set; }
     public int UnitId { get; set; }
     public string UnitCode { get; set; } = string.Empty;
     public decimal SellingRate { get; set; }

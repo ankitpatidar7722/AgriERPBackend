@@ -19,7 +19,7 @@ public class ItemGroupConfiguration : IEntityTypeConfiguration<ItemGroup>
 
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasQueryFilter(x => !x.IsDeleted);
     }
@@ -48,7 +48,7 @@ public class ItemGroupFieldConfiguration : IEntityTypeConfiguration<ItemGroupFie
 
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.ItemGroup).WithMany(g => g.Fields).HasForeignKey(x => x.ItemGroupId)
          .OnDelete(DeleteBehavior.Restrict);

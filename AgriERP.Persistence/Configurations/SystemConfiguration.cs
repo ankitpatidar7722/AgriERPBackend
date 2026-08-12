@@ -42,7 +42,7 @@ public class CompanyProfileConfiguration : IEntityTypeConfiguration<CompanyProfi
         b.Property(x => x.InvoiceTerms).HasMaxLength(1000);
         b.Property(x => x.InvoiceFooterNote).HasMaxLength(500);
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.State).WithMany().HasForeignKey(x => x.StateId)
          .OnDelete(DeleteBehavior.Restrict);

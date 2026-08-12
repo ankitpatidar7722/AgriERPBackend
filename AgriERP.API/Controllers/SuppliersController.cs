@@ -33,6 +33,12 @@ public class SuppliersController : BaseApiController
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
         => Success(await _suppliers.GetByIdAsync(id, ct));
 
+    /// <summary>The Tally-style supplier money ledger (opening, vouchers, running balance, closing).</summary>
+    [HasPermission(Permissions.Supplier.View)]
+    [HttpGet("{id:int}/ledger")]
+    public async Task<IActionResult> GetLedger(int id, [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
+        => Success(await _suppliers.GetLedgerAsync(id, from, to, ct));
+
     [HasPermission(Permissions.Supplier.Create)]
     [HttpPost]
     public async Task<IActionResult> Create(SaveSupplierRequest request, CancellationToken ct)

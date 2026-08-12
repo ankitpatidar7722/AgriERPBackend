@@ -222,10 +222,23 @@ public class PurchaseReturnQueryParameters : QueryParameters
 public class PurchaseOrderLineRequest
 {
     public int ItemId { get; set; }
+
+    /// <summary>The P.O. quantity in purchase units - the client sends NoOfPacks * QtyPerPack.</summary>
     public decimal OrderedQty { get; set; }
     public int? UnitId { get; set; }
     public decimal Rate { get; set; }
+
+    /// <summary>Pack breakdown that produced OrderedQty.</summary>
+    public decimal NoOfPacks { get; set; }
+    public decimal QtyPerPack { get; set; }
+
+    /// <summary>Snapshot of the requisition's required qty; null for a direct order.</summary>
+    public decimal? RequiredQty { get; set; }
+
     public string? Remarks { get; set; }
+
+    /// <summary>A per-line note about the item, distinct from Remarks.</summary>
+    public string? ItemRemark { get; set; }
 
     /// <summary>Set when this PO line is raised from a requisition line - it adds to that line's OrderedQty.</summary>
     public long? RequisitionDetailId { get; set; }
@@ -245,6 +258,9 @@ public class PurchaseOrderLineDto
 {
     public long PurchaseOrderDetailId { get; set; }
     public int ItemId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemGroupName { get; set; } = string.Empty;
+    public string ItemSubGroupName { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public int UnitId { get; set; }
     public string UnitCode { get; set; } = string.Empty;
@@ -253,6 +269,13 @@ public class PurchaseOrderLineDto
     public decimal PendingQty { get; set; }
     public decimal Rate { get; set; }
     public decimal EstimatedAmount { get; set; }
+
+    // Pack breakdown and the requisition figure this line was built against.
+    public decimal NoOfPacks { get; set; }
+    public decimal QtyPerPack { get; set; }
+    public decimal? RequiredQty { get; set; }
+    public string? Remarks { get; set; }
+    public string? ItemRemark { get; set; }
 
     // The requisition line this order line drew on, if any. Round-tripped so an
     // edit can hand the draw back and re-take it, keeping requisition progress true.
@@ -279,6 +302,103 @@ public class PurchaseOrderDto
     public PurchaseOrderStatus Status { get; set; }
     public string? Remarks { get; set; }
     public IReadOnlyList<PurchaseOrderLineDto> Lines { get; set; } = Array.Empty<PurchaseOrderLineDto>();
+}
+
+/// <summary>
+/// One purchase-order LINE flattened with its parent order's header fields, for
+/// the item-wise order list: every item is its own row (a 5-item order shows as
+/// 5 rows), and each row carries its PurchaseOrderId so it can open/print/receive
+/// against the whole order.
+/// </summary>
+public class PurchaseOrderItemRowDto
+{
+    public long PurchaseOrderId { get; set; }
+    public string OrderNumber { get; set; } = string.Empty;
+    public DateTime OrderDate { get; set; }
+    public DateTime? ExpectedDate { get; set; }
+    public int SupplierId { get; set; }
+    public string SupplierName { get; set; } = string.Empty;
+    public PurchaseOrderStatus Status { get; set; }
+
+    public long PurchaseOrderDetailId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public string ItemGroupName { get; set; } = string.Empty;
+    public string ItemSubGroupName { get; set; } = string.Empty;
+    public string UnitCode { get; set; } = string.Empty;
+    public decimal OrderedQty { get; set; }
+    public decimal Rate { get; set; }
+    public decimal EstimatedAmount { get; set; }
+}
+
+/// <summary>
+/// One GRN (purchase) LINE flattened with its parent's header, for the item-wise
+/// GRN list: every item is its own row, each carrying its PurchaseId.
+/// </summary>
+public class PurchaseItemRowDto
+{
+    public long PurchaseId { get; set; }
+    public string PurchaseNumber { get; set; } = string.Empty;
+    public DateTime PurchaseDate { get; set; }
+    public int SupplierId { get; set; }
+    public string SupplierName { get; set; } = string.Empty;
+    public string? WarehouseName { get; set; }
+    public DocumentStatus Status { get; set; }
+
+    public long PurchaseDetailId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public string ItemGroupName { get; set; } = string.Empty;
+    public string ItemSubGroupName { get; set; } = string.Empty;
+    public string UnitCode { get; set; } = string.Empty;
+    public string? BatchNumber { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal FreeQuantity { get; set; }
+    public decimal Rate { get; set; }
+    public decimal LineTotal { get; set; }
+}
+
+/// <summary>Supplier identity shown on the printed purchase order.</summary>
+public class PurchaseOrderSupplierDto
+{
+    public string SupplierCode { get; set; } = string.Empty;
+    public string SupplierName { get; set; } = string.Empty;
+    public string? GstNumber { get; set; }
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? StateName { get; set; }
+    public string? Pincode { get; set; }
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+    public string? ContactPerson { get; set; }
+    public int PaymentTermDays { get; set; }
+}
+
+/// <summary>
+/// Everything the printable purchase order needs in one payload: the shop
+/// letterhead (sourced from ShopMaster, falling back to CompanyProfile),
+/// the supplier block, the order with its lines, and estimated totals. The
+/// GST here is an ESTIMATE off each line's slab - the binding tax is struck
+/// on the goods-receipt note when the consignment arrives.
+/// </summary>
+public class PurchaseOrderPrintDto
+{
+    public ShopHeaderDto Shop { get; set; } = new();
+    public PurchaseOrderDto Order { get; set; } = new();
+    public PurchaseOrderSupplierDto Supplier { get; set; } = new();
+    public string? DeliveryLocationName { get; set; }
+    public bool IsInterState { get; set; }
+    public IReadOnlyList<InvoiceTaxSummaryDto> TaxSummary { get; set; } = Array.Empty<InvoiceTaxSummaryDto>();
+    public int TotalPacks { get; set; }
+    public decimal SubTotal { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal CgstAmount { get; set; }
+    public decimal SgstAmount { get; set; }
+    public decimal IgstAmount { get; set; }
+    public decimal RoundOff { get; set; }
+    public decimal GrandTotal { get; set; }
+    public string AmountInWords { get; set; } = string.Empty;
 }
 
 public class PurchaseOrderQueryParameters : QueryParameters

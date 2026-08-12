@@ -1,5 +1,6 @@
 using AgriERP.Application.Common.Extensions;
 using AgriERP.Application.Common.Interfaces;
+using AgriERP.Domain.Entities.Masters;
 using AgriERP.Domain.Entities.Purchases;
 using AgriERP.Domain.Entities.Sales;
 using AgriERP.Domain.Enums;
@@ -27,6 +28,34 @@ public class SalesReportRowDto
     public decimal CreditGiven { get; set; }
     public int CashInvoiceCount { get; set; }
     public int CreditInvoiceCount { get; set; }
+}
+
+/// <summary>One customer's sales rolled up over a period: how much they bought, paid and still owe.</summary>
+public class CustomerSalesRowDto
+{
+    public int? CustomerId { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string? Village { get; set; }
+    public long InvoiceCount { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal TotalSales { get; set; }
+    public decimal AmountReceived { get; set; }
+    public decimal BalanceAmount { get; set; }
+}
+
+/// <summary>One supplier's purchases rolled up over a period: bought, paid and still payable.</summary>
+public class SupplierPurchaseRowDto
+{
+    public int SupplierId { get; set; }
+    public string SupplierName { get; set; } = string.Empty;
+    public string? City { get; set; }
+    public long BillCount { get; set; }
+    public decimal TaxableAmount { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal TotalPurchase { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal BalanceAmount { get; set; }
 }
 
 public class PurchaseReportRowDto
@@ -122,7 +151,9 @@ public interface IReportService
 
     // financial
     Task<IReadOnlyList<SalesReportRowDto>> GetSalesReportAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<IReadOnlyList<CustomerSalesRowDto>> GetSalesByCustomerAsync(DateRangeRequest range, CancellationToken ct = default);
     Task<IReadOnlyList<PurchaseReportRowDto>> GetPurchaseReportAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<IReadOnlyList<SupplierPurchaseRowDto>> GetPurchaseBySupplierAsync(DateRangeRequest range, CancellationToken ct = default);
     Task<IReadOnlyList<ProfitReportRowDto>> GetProfitReportAsync(DateRangeRequest range, CancellationToken ct = default);
     Task<IReadOnlyList<ItemProfitRowDto>> GetItemProfitAsync(DateRangeRequest range, int topCount, CancellationToken ct = default);
     Task<GstReturnDto> GetGstReturnAsync(DateRangeRequest range, CancellationToken ct = default);
@@ -255,6 +286,55 @@ public class ReportService : IReportService
             })
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<CustomerSalesRowDto>> GetSalesByCustomerAsync(
+        DateRangeRequest range, CancellationToken ct = default)
+    {
+        // Roll every posted invoice up to its customer. Walk-in (no customerId)
+        // bills all fall into one "Walk-in / Cash" bucket.
+        var grouped = await _uow.Repository<Sale>().Query()
+            .Where(s => s.Status == DocumentStatus.Posted
+                     && s.InvoiceDate >= range.FromDate.Date && s.InvoiceDate <= range.ToDate.Date)
+            .GroupBy(s => s.CustomerId)
+            .Select(g => new
+            {
+                CustomerId = g.Key,
+                InvoiceCount = g.LongCount(),
+                TaxableAmount = g.Sum(x => x.TaxableAmount),
+                TaxAmount = g.Sum(x => x.CgstAmount + x.SgstAmount + x.IgstAmount),
+                TotalSales = g.Sum(x => x.GrandTotal),
+                AmountReceived = g.Sum(x => x.ReceivedAmount),
+                BalanceAmount = g.Sum(x => x.BalanceAmount)
+            })
+            .ToListAsync(ct);
+
+        var ids = grouped.Where(x => x.CustomerId != null).Select(x => x.CustomerId!.Value).ToList();
+        var names = await _uow.Repository<Customer>().Query()
+            .Where(c => ids.Contains(c.CustomerId))
+            .Select(c => new { c.CustomerId, c.CustomerName, c.Village })
+            .ToListAsync(ct);
+        var nameMap = names.ToDictionary(n => n.CustomerId);
+
+        return grouped
+            .Select(x =>
+            {
+                nameMap.TryGetValue(x.CustomerId ?? 0, out var c);
+                return new CustomerSalesRowDto
+                {
+                    CustomerId = x.CustomerId,
+                    CustomerName = c?.CustomerName ?? "Walk-in / Cash",
+                    Village = c?.Village,
+                    InvoiceCount = x.InvoiceCount,
+                    TaxableAmount = x.TaxableAmount,
+                    TaxAmount = x.TaxAmount,
+                    TotalSales = x.TotalSales,
+                    AmountReceived = x.AmountReceived,
+                    BalanceAmount = x.BalanceAmount
+                };
+            })
+            .OrderByDescending(r => r.TotalSales)
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<PurchaseReportRowDto>> GetPurchaseReportAsync(
         DateRangeRequest range, CancellationToken ct = default)
         => await _uow.Repository<DailyPurchaseSummaryView>().Query()
@@ -271,6 +351,53 @@ public class ReportService : IReportService
                 AmountDue     = p.AmountDue
             })
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<SupplierPurchaseRowDto>> GetPurchaseBySupplierAsync(
+        DateRangeRequest range, CancellationToken ct = default)
+    {
+        var grouped = await _uow.Repository<Purchase>().Query()
+            .Where(p => p.Status == DocumentStatus.Posted
+                     && p.PurchaseDate >= range.FromDate.Date && p.PurchaseDate <= range.ToDate.Date)
+            .GroupBy(p => p.SupplierId)
+            .Select(g => new
+            {
+                SupplierId = g.Key,
+                BillCount = g.LongCount(),
+                TaxableAmount = g.Sum(x => x.TaxableAmount),
+                TaxAmount = g.Sum(x => x.CgstAmount + x.SgstAmount + x.IgstAmount),
+                TotalPurchase = g.Sum(x => x.GrandTotal),
+                AmountPaid = g.Sum(x => x.PaidAmount),
+                BalanceAmount = g.Sum(x => x.BalanceAmount)
+            })
+            .ToListAsync(ct);
+
+        var ids = grouped.Select(x => x.SupplierId).ToList();
+        var suppliers = await _uow.Repository<Supplier>().Query()
+            .Where(s => ids.Contains(s.SupplierId))
+            .Select(s => new { s.SupplierId, s.SupplierName, s.City })
+            .ToListAsync(ct);
+        var map = suppliers.ToDictionary(s => s.SupplierId);
+
+        return grouped
+            .Select(x =>
+            {
+                map.TryGetValue(x.SupplierId, out var s);
+                return new SupplierPurchaseRowDto
+                {
+                    SupplierId = x.SupplierId,
+                    SupplierName = s?.SupplierName ?? "-",
+                    City = s?.City,
+                    BillCount = x.BillCount,
+                    TaxableAmount = x.TaxableAmount,
+                    TaxAmount = x.TaxAmount,
+                    TotalPurchase = x.TotalPurchase,
+                    AmountPaid = x.AmountPaid,
+                    BalanceAmount = x.BalanceAmount
+                };
+            })
+            .OrderByDescending(r => r.TotalPurchase)
+            .ToList();
+    }
 
     public async Task<IReadOnlyList<ProfitReportRowDto>> GetProfitReportAsync(
         DateRangeRequest range, CancellationToken ct = default)

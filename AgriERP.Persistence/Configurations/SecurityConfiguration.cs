@@ -16,7 +16,7 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         b.Property(x => x.Description).HasMaxLength(250);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasIndex(x => x.RoleName).IsUnique().HasDatabaseName("UQ_Roles_RoleName");
     }
@@ -82,7 +82,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(x => x.LockoutEndAt).AsNullableTimestamp();
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Role)
          .WithMany(r => r.Users)

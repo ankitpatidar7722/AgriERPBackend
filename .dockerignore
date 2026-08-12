@@ -1,0 +1,12 @@
+# Keep the Docker build context small and secret-free.
+**/bin/
+**/obj/
+**/.vs/
+tests/
+database/
+docs/
+logs/
+**/appsettings.Development.json
+**/appsettings.test.json
+**/appsettings.Production.json
+*.user

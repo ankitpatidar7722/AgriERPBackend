@@ -79,7 +79,7 @@ public class StockAdjustmentConfiguration : IEntityTypeConfiguration<StockAdjust
         b.Property(x => x.PostedAt).AsNullableTimestamp();
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Location).WithMany().HasForeignKey(x => x.LocationId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -134,7 +134,7 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         b.Property(x => x.PostedAt).AsNullableTimestamp();
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.FromLocation).WithMany().HasForeignKey(x => x.FromLocationId)
          .OnDelete(DeleteBehavior.Restrict);

@@ -23,6 +23,7 @@ public interface ISupplierService
     Task<SupplierDto> UpdateAsync(int id, SaveSupplierRequest request, CancellationToken ct = default);
     Task DeleteAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<SupplierOutstandingView>> GetOutstandingAsync(CancellationToken ct = default);
+    Task<SupplierLedgerDto> GetLedgerAsync(int supplierId, DateTime? from, DateTime? to, CancellationToken ct = default);
 }
 
 public class SupplierService : ISupplierService
@@ -107,6 +108,63 @@ public class SupplierService : ISupplierService
             .Where(v => v.OutstandingAmount != 0)
             .OrderByDescending(v => v.OutstandingAmount)
             .ToListAsync(ct);
+
+    public async Task<SupplierLedgerDto> GetLedgerAsync(
+        int supplierId, DateTime? from, DateTime? to, CancellationToken ct = default)
+    {
+        var supplier = await _uow.Repository<Supplier>().Query()
+            .Where(s => s.SupplierId == supplierId && !s.IsDeleted)
+            .Select(s => new { s.SupplierId, s.SupplierCode, s.SupplierName })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Supplier", supplierId);
+
+        // The whole ledger for this supplier (few rows for a shop). The view
+        // already carries a correct cumulative RunningBalance per row.
+        var all = await _uow.Repository<SupplierLedgerView>().Query()
+            .Where(l => l.SupplierId == supplierId)
+            .OrderBy(l => l.Seq)
+            .Select(l => new SupplierLedgerRowDto
+            {
+                Seq = l.Seq,
+                TransactionDate = l.TransactionDate,
+                VoucherType = l.VoucherType,
+                VoucherNumber = l.VoucherNumber,
+                ReferenceType = l.ReferenceType,
+                ReferenceId = l.ReferenceId,
+                Narration = l.Narration,
+                Debit = l.Debit,
+                Credit = l.Credit,
+                RunningBalance = l.RunningBalance,
+                CreatedByName = l.CreatedByName
+            })
+            .ToListAsync(ct);
+
+        var fromDate = from?.Date;
+        var toDate = to?.Date;
+
+        var opening = fromDate.HasValue
+            ? all.Where(r => r.TransactionDate < fromDate.Value).Sum(r => r.Debit - r.Credit)
+            : 0m;
+
+        var rows = all
+            .Where(r => (!fromDate.HasValue || r.TransactionDate >= fromDate.Value)
+                     && (!toDate.HasValue || r.TransactionDate <= toDate.Value))
+            .ToList();
+
+        return new SupplierLedgerDto
+        {
+            SupplierId = supplier.SupplierId,
+            SupplierCode = supplier.SupplierCode,
+            SupplierName = supplier.SupplierName,
+            FromDate = fromDate,
+            ToDate = toDate,
+            OpeningBalance = opening,
+            TotalDebit = rows.Sum(r => r.Debit),
+            TotalCredit = rows.Sum(r => r.Credit),
+            ClosingBalance = opening + rows.Sum(r => r.Debit - r.Credit),
+            Rows = rows
+        };
+    }
 
     public async Task<SupplierDto> CreateAsync(SaveSupplierRequest request, CancellationToken ct = default)
     {

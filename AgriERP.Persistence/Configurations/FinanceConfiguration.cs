@@ -48,7 +48,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         b.Property(x => x.CancelReason).HasMaxLength(300);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -98,7 +98,7 @@ public class ExpenseCategoryConfiguration : IEntityTypeConfiguration<ExpenseCate
         b.Property(x => x.Description).HasMaxLength(300);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasIndex(x => x.CategoryCode).IsUnique().HasFilter("[IsDeleted] = 0")
          .HasDatabaseName("UQ_ExpenseCategories_Code");
@@ -125,7 +125,7 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(15).IsRequired();
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.ExpenseCategory).WithMany(c => c.Expenses)
          .HasForeignKey(x => x.ExpenseCategoryId).OnDelete(DeleteBehavior.Restrict);

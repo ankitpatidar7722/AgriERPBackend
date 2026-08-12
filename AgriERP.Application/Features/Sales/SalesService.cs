@@ -24,6 +24,7 @@ public interface ISalesService
     Task<SaleDto> PostAsync(long id, CancellationToken ct = default);
     Task<SaleDto> CancelAsync(long id, string reason, CancellationToken ct = default);
     Task<InvoicePrintDto> GetInvoiceForPrintAsync(long id, CancellationToken ct = default);
+    Task<SalesOrderPrintDto> GetSalesOrderForPrintAsync(long id, CancellationToken ct = default);
 
     Task<PagedResult<SalesReturnDto>> GetReturnsAsync(SalesReturnQueryParameters parameters, CancellationToken ct = default);
     Task<SalesReturnDto> GetReturnAsync(long id, CancellationToken ct = default);
@@ -693,6 +694,63 @@ public class SalesService : ISalesService
             Invoice       = invoice,
             TaxSummary    = taxSummary,
             AmountInWords = AmountToWords.Convert(invoice.GrandTotal)
+        };
+    }
+
+    public async Task<SalesOrderPrintDto> GetSalesOrderForPrintAsync(long id, CancellationToken ct = default)
+    {
+        var sale = await GetByIdAsync(id, ct);
+
+        // Shop head from ShopMaster (CompanyProfile fills the gaps) - same source
+        // as the purchase order, so both documents wear the same letterhead.
+        var (shop, _) = await ShopHeaderBuilder.BuildAsync(_uow, ct);
+
+        // Customer contact for the order head. A walk-in sale carries name and
+        // mobile on the bill itself; a registered customer's details come from
+        // the master (mobile, GSTIN).
+        var customer = new SalesOrderCustomerDto
+        {
+            Name    = sale.CustomerName,
+            Village = sale.Village,
+            Mobile  = sale.WalkInMobile
+        };
+        if (sale.CustomerId is int cid)
+        {
+            var c = await _uow.Repository<Customer>().Query()
+                .Where(x => x.CustomerId == cid)
+                .Select(x => new { x.Mobile, x.GstNumber, x.Village })
+                .FirstOrDefaultAsync(ct);
+            if (c is not null)
+            {
+                customer.Mobile    = c.Mobile ?? customer.Mobile;
+                customer.GstNumber = c.GstNumber;
+                customer.Village   = customer.Village ?? c.Village;
+            }
+        }
+
+        var taxSummary = await _uow.Repository<SalesDetail>().Query()
+            .Where(d => d.SaleId == id)
+            .GroupBy(d => new { d.HsnCode, d.GstPercent })
+            .Select(g => new InvoiceTaxSummaryDto
+            {
+                HsnCode       = g.Key.HsnCode,
+                GstPercent    = g.Key.GstPercent,
+                TaxableAmount = g.Sum(d => d.TaxableAmount),
+                CgstAmount    = g.Sum(d => d.CgstAmount),
+                SgstAmount    = g.Sum(d => d.SgstAmount),
+                IgstAmount    = g.Sum(d => d.IgstAmount),
+                TotalTax      = g.Sum(d => d.CgstAmount + d.SgstAmount + d.IgstAmount + d.CessAmount)
+            })
+            .OrderBy(s => s.GstPercent)
+            .ToListAsync(ct);
+
+        return new SalesOrderPrintDto
+        {
+            Shop          = shop,
+            Sale          = sale,
+            Customer      = customer,
+            TaxSummary    = taxSummary,
+            AmountInWords = AmountToWords.Convert(sale.GrandTotal)
         };
     }
 

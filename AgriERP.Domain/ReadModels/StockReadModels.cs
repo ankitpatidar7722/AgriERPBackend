@@ -165,6 +165,28 @@ public class CustomerLedgerView
     public string? CreatedByName { get; set; }
 }
 
+/// <summary>
+/// vw_SupplierLedger - the supplier mirror of vw_CustomerLedger (opening, posted
+/// purchases, counter + later payments, purchase returns). A supplier is a
+/// creditor, so the running balance is negative (CR) when we owe. Read-only.
+/// </summary>
+public class SupplierLedgerView
+{
+    public int SupplierId { get; set; }
+    public long Seq { get; set; }
+    public DateTime TransactionDate { get; set; }
+    public string VoucherType { get; set; } = string.Empty;
+    public string? VoucherNumber { get; set; }
+    public string? ReferenceType { get; set; }
+    public long? ReferenceId { get; set; }
+    public string? Narration { get; set; }
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    public decimal RunningBalance { get; set; }
+    public int? CreatedBy { get; set; }
+    public string? CreatedByName { get; set; }
+}
+
 /// <summary>vw_SupplierOutstanding.</summary>
 public class SupplierOutstandingView
 {

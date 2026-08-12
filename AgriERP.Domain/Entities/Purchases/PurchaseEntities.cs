@@ -102,7 +102,19 @@ public class PurchaseOrderDetail
     /// <summary>PERSISTED computed column: OrderedQty * Rate.</summary>
     public decimal EstimatedAmount { get; private set; }
 
+    /// <summary>Packs ordered. OrderedQty (the P.O. qty in purchase units) = NoOfPacks * QtyPerPack.</summary>
+    public decimal NoOfPacks { get; set; }
+
+    /// <summary>Units contained in one pack.</summary>
+    public decimal QtyPerPack { get; set; }
+
+    /// <summary>Snapshot of the requisition line's required qty; null for a direct order.</summary>
+    public decimal? RequiredQty { get; set; }
+
     public string? Remarks { get; set; }
+
+    /// <summary>A note about the item on this order, kept apart from Remarks.</summary>
+    public string? ItemRemark { get; set; }
 
     /// <summary>The requisition line this order line fulfils, when raised from one.</summary>
     public long? RequisitionDetailId { get; set; }

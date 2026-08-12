@@ -18,6 +18,7 @@ namespace AgriERP.Application.Features.Purchases;
 public interface IPurchaseService
 {
     Task<PagedResult<PurchaseListDto>> GetPagedAsync(PurchaseQueryParameters parameters, CancellationToken ct = default);
+    Task<PagedResult<PurchaseItemRowDto>> GetPurchaseItemsAsync(PurchaseQueryParameters parameters, CancellationToken ct = default);
     Task<PurchaseDto> GetByIdAsync(long id, CancellationToken ct = default);
     Task<PurchasePrintDto> GetPurchaseForPrintAsync(long id, CancellationToken ct = default);
     Task<PurchaseDto> CreateAsync(SavePurchaseRequest request, CancellationToken ct = default);
@@ -31,12 +32,16 @@ public interface IPurchaseService
     Task<PurchaseReturnDto> PostReturnAsync(long id, CancellationToken ct = default);
 
     Task<PagedResult<PurchaseOrderDto>> GetOrdersAsync(PurchaseOrderQueryParameters parameters, CancellationToken ct = default);
+    Task<PagedResult<PurchaseOrderItemRowDto>> GetOrderItemsAsync(PurchaseOrderQueryParameters parameters, CancellationToken ct = default);
     Task<PurchaseOrderDto> GetOrderAsync(long id, CancellationToken ct = default);
+    Task<PurchaseOrderPrintDto> GetOrderForPrintAsync(long id, CancellationToken ct = default);
     Task<PurchaseOrderDto> CreateOrderAsync(SavePurchaseOrderRequest request, CancellationToken ct = default);
     Task<PurchaseOrderDto> UpdateOrderAsync(long id, SavePurchaseOrderRequest request, CancellationToken ct = default);
 
     Task<PagedResult<PurchaseRequisitionDto>> GetRequisitionsAsync(PurchaseRequisitionQueryParameters parameters, CancellationToken ct = default);
+    Task<PagedResult<PurchaseRequisitionItemRowDto>> GetRequisitionItemsAsync(PurchaseRequisitionQueryParameters parameters, CancellationToken ct = default);
     Task<string?> PeekNextRequisitionNumberAsync(CancellationToken ct = default);
+    Task<string?> PeekNextOrderNumberAsync(CancellationToken ct = default);
     Task<PurchaseRequisitionDto> GetRequisitionAsync(long id, CancellationToken ct = default);
     Task<PurchaseRequisitionDto> CreateRequisitionAsync(SavePurchaseRequisitionRequest request, CancellationToken ct = default);
     Task<PurchaseRequisitionDto> UpdateRequisitionAsync(long id, SavePurchaseRequisitionRequest request, CancellationToken ct = default);
@@ -140,6 +145,67 @@ public class PurchaseService : IPurchaseService
             .ToListAsync(ct);
 
         return PagedResult<PurchaseListDto>.Create(items, parameters.Page, parameters.PageSize, totalCount);
+    }
+
+    /// <summary>
+    /// The GRN list flattened to one row PER LINE ITEM (item-wise view): a 5-item
+    /// receipt returns 5 rows, each carrying its parent GRN's number, date,
+    /// supplier, warehouse and status. Same filters/paging as GetPagedAsync.
+    /// </summary>
+    public async Task<PagedResult<PurchaseItemRowDto>> GetPurchaseItemsAsync(
+        PurchaseQueryParameters parameters, CancellationToken ct = default)
+    {
+        var search = parameters.NormalizedSearch;
+
+        var query = _uow.Repository<PurchaseDetail>().Query()
+            .WhereIf(parameters.SupplierId.HasValue, d => d.Purchase!.SupplierId == parameters.SupplierId)
+            .WhereIf(parameters.FromDate.HasValue, d => d.Purchase!.PurchaseDate >= parameters.FromDate!.Value.Date)
+            .WhereIf(parameters.ToDate.HasValue, d => d.Purchase!.PurchaseDate <= parameters.ToDate!.Value.Date)
+            .WhereIf(parameters.Status.HasValue, d => d.Purchase!.Status == parameters.Status!.Value)
+            .WhereIf(parameters.UnpaidOnly == true,
+                     d => d.Purchase!.Status == DocumentStatus.Posted && d.Purchase!.BalanceAmount > 0)
+            .WhereIf(search is not null, d =>
+                d.Purchase!.PurchaseNumber.Contains(search!)
+                || (d.Purchase!.SupplierInvoiceNumber != null && d.Purchase!.SupplierInvoiceNumber.Contains(search!))
+                || d.Purchase!.Supplier!.SupplierName.Contains(search!)
+                || d.Item!.ItemName.Contains(search!)
+                || d.Item!.ItemCode.Contains(search!));
+
+        var totalCount = await query.CountAsync(ct);
+
+        if (totalCount == 0)
+            return PagedResult<PurchaseItemRowDto>.Empty(parameters.Page, parameters.PageSize);
+
+        var items = await query
+            .OrderByDescending(d => d.Purchase!.PurchaseDate)
+            .ThenByDescending(d => d.PurchaseId)
+            .ThenBy(d => d.LineNumber)
+            .Skip(parameters.Skip).Take(parameters.PageSize)
+            .Select(d => new PurchaseItemRowDto
+            {
+                PurchaseId       = d.PurchaseId,
+                PurchaseNumber   = d.Purchase!.PurchaseNumber,
+                PurchaseDate     = d.Purchase.PurchaseDate,
+                SupplierId       = d.Purchase.SupplierId,
+                SupplierName     = d.Purchase.Supplier!.SupplierName,
+                WarehouseName    = d.Purchase.Warehouse != null ? d.Purchase.Warehouse.WarehouseName : null,
+                Status           = d.Purchase.Status,
+                PurchaseDetailId = d.PurchaseDetailId,
+                ItemCode         = d.Item!.ItemCode,
+                ItemName         = d.Item.ItemName,
+                ItemGroupName    = d.Item.ItemGroup!.ItemGroupName,
+                ItemSubGroupName = d.Item.ItemSubGroup!.ItemSubGroupName,
+                UnitCode         = d.Unit!.UnitCode,
+                BatchNumber      = d.BatchNumber,
+                ExpiryDate       = d.ExpiryDate,
+                Quantity         = d.Quantity,
+                FreeQuantity     = d.FreeQuantity,
+                Rate             = d.Rate,
+                LineTotal        = d.LineTotal
+            })
+            .ToListAsync(ct);
+
+        return PagedResult<PurchaseItemRowDto>.Create(items, parameters.Page, parameters.PageSize, totalCount);
     }
 
     public async Task<PurchaseDto> GetByIdAsync(long id, CancellationToken ct = default)
@@ -905,6 +971,65 @@ public class PurchaseService : IPurchaseService
         return PagedResult<PurchaseOrderDto>.Create(items, parameters.Page, parameters.PageSize, totalCount);
     }
 
+    /// <summary>
+    /// The order list flattened to one row PER LINE ITEM (item-wise view): a
+    /// 5-item order returns 5 rows, each carrying its parent order's number,
+    /// date, supplier and status. Same filters and paging as GetOrdersAsync,
+    /// but paging is over lines, not orders.
+    /// </summary>
+    public async Task<PagedResult<PurchaseOrderItemRowDto>> GetOrderItemsAsync(
+        PurchaseOrderQueryParameters parameters, CancellationToken ct = default)
+    {
+        var search = parameters.NormalizedSearch;
+
+        var query = _uow.Repository<PurchaseOrderDetail>().Query()
+            .WhereIf(parameters.SupplierId.HasValue, d => d.PurchaseOrder!.SupplierId == parameters.SupplierId)
+            .WhereIf(parameters.Status.HasValue, d => d.PurchaseOrder!.Status == parameters.Status!.Value)
+            .WhereIf(parameters.FromDate.HasValue, d => d.PurchaseOrder!.OrderDate >= parameters.FromDate!.Value.Date)
+            .WhereIf(parameters.ToDate.HasValue, d => d.PurchaseOrder!.OrderDate <= parameters.ToDate!.Value.Date)
+            .WhereIf(parameters.PendingOnly == true,
+                     d => d.PurchaseOrder!.Status == PurchaseOrderStatus.Open
+                       || d.PurchaseOrder!.Status == PurchaseOrderStatus.Partial)
+            .WhereIf(search is not null, d =>
+                d.PurchaseOrder!.OrderNumber.Contains(search!)
+                || d.PurchaseOrder!.Supplier!.SupplierName.Contains(search!)
+                || d.Item!.ItemName.Contains(search!)
+                || d.Item!.ItemCode.Contains(search!));
+
+        var totalCount = await query.CountAsync(ct);
+
+        if (totalCount == 0)
+            return PagedResult<PurchaseOrderItemRowDto>.Empty(parameters.Page, parameters.PageSize);
+
+        var items = await query
+            .OrderByDescending(d => d.PurchaseOrder!.OrderDate)
+            .ThenByDescending(d => d.PurchaseOrderId)
+            .ThenBy(d => d.LineNumber)
+            .Skip(parameters.Skip).Take(parameters.PageSize)
+            .Select(d => new PurchaseOrderItemRowDto
+            {
+                PurchaseOrderId  = d.PurchaseOrderId,
+                OrderNumber      = d.PurchaseOrder!.OrderNumber,
+                OrderDate        = d.PurchaseOrder.OrderDate,
+                ExpectedDate     = d.PurchaseOrder.ExpectedDate,
+                SupplierId       = d.PurchaseOrder.SupplierId,
+                SupplierName     = d.PurchaseOrder.Supplier!.SupplierName,
+                Status           = d.PurchaseOrder.Status,
+                PurchaseOrderDetailId = d.PurchaseOrderDetailId,
+                ItemCode         = d.Item!.ItemCode,
+                ItemName         = d.Item.ItemName,
+                ItemGroupName    = d.Item.ItemGroup!.ItemGroupName,
+                ItemSubGroupName = d.Item.ItemSubGroup!.ItemSubGroupName,
+                UnitCode         = d.Unit!.UnitCode,
+                OrderedQty       = d.OrderedQty,
+                Rate             = d.Rate,
+                EstimatedAmount  = d.EstimatedAmount
+            })
+            .ToListAsync(ct);
+
+        return PagedResult<PurchaseOrderItemRowDto>.Create(items, parameters.Page, parameters.PageSize, totalCount);
+    }
+
     public async Task<PurchaseOrderDto> GetOrderAsync(long id, CancellationToken ct = default)
     {
         var dto = await _uow.Repository<PurchaseOrder>().Query()
@@ -932,7 +1057,10 @@ public class PurchaseService : IPurchaseService
             {
                 PurchaseOrderDetailId = d.PurchaseOrderDetailId,
                 ItemId       = d.ItemId,
-                ItemName     = d.Item!.ItemName,
+                ItemCode        = d.Item!.ItemCode,
+                ItemGroupName    = d.Item.ItemGroup!.ItemGroupName,
+                ItemSubGroupName = d.Item.ItemSubGroup!.ItemSubGroupName,
+                ItemName     = d.Item.ItemName,
                 UnitId          = d.UnitId,
                 UnitCode        = d.Unit!.UnitCode,
                 OrderedQty      = d.OrderedQty,
@@ -940,6 +1068,11 @@ public class PurchaseService : IPurchaseService
                 PendingQty      = d.PendingQty,
                 Rate            = d.Rate,
                 EstimatedAmount = d.EstimatedAmount,
+                NoOfPacks       = d.NoOfPacks,
+                QtyPerPack      = d.QtyPerPack,
+                RequiredQty     = d.RequiredQty,
+                Remarks         = d.Remarks,
+                ItemRemark      = d.ItemRemark,
                 RequisitionDetailId = d.RequisitionDetailId,
                 GstPercent      = d.Item.GstSlab!.TotalRate,
                 HsnCode         = d.Item.Hsn != null ? d.Item.Hsn.Code : null,
@@ -949,6 +1082,110 @@ public class PurchaseService : IPurchaseService
             .ToListAsync(ct);
 
         return dto;
+    }
+
+    public async Task<PurchaseOrderPrintDto> GetOrderForPrintAsync(long id, CancellationToken ct = default)
+    {
+        // The header + lines are already assembled (item code, group/sub-group,
+        // pack breakdown, GST slab and HSN all come along) - reuse them.
+        var order = await GetOrderAsync(id, ct);
+
+        // ---- Shop letterhead: ShopMaster first, CompanyProfile fills the gaps --
+        var (shop, shopStateId) = await ShopHeaderBuilder.BuildAsync(_uow, ct);
+
+        // ---- Supplier block ---------------------------------------------------
+        var sup = await _uow.Repository<Supplier>().Query()
+            .Where(s => s.SupplierId == order.SupplierId)
+            .Select(s => new
+            {
+                s.SupplierCode,
+                s.SupplierName,
+                s.GstNumber,
+                s.Address,
+                s.City,
+                StateName = s.State != null ? s.State.StateName : null,
+                s.StateId,
+                s.Pincode,
+                s.Phone,
+                s.Email,
+                s.ContactPerson,
+                s.PaymentTermDays
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var supplier = sup == null
+            ? new PurchaseOrderSupplierDto { SupplierName = order.SupplierName }
+            : new PurchaseOrderSupplierDto
+            {
+                SupplierCode    = sup.SupplierCode,
+                SupplierName    = sup.SupplierName,
+                GstNumber       = sup.GstNumber,
+                Address         = sup.Address,
+                City            = sup.City,
+                StateName       = sup.StateName,
+                Pincode         = sup.Pincode,
+                Phone           = sup.Phone,
+                Email           = sup.Email,
+                ContactPerson   = sup.ContactPerson,
+                PaymentTermDays = sup.PaymentTermDays
+            };
+
+        var deliveryLocation = await _uow.Repository<PurchaseOrder>().Query()
+            .Where(o => o.PurchaseOrderId == id)
+            .Select(o => o.Location != null ? o.Location.LocationName : null)
+            .FirstOrDefaultAsync(ct);
+
+        // ---- Estimated GST ----------------------------------------------------
+        // A PO is a booking, so tax here is an estimate off each line's slab.
+        // Same state as the shop -> CGST+SGST; a different state -> IGST.
+        var interState = sup?.StateId is int ss && shopStateId is int shs && ss != shs;
+
+        var taxSummary = order.Lines
+            .GroupBy(l => new { l.HsnCode, l.GstPercent })
+            .Select(g =>
+            {
+                var taxable = g.Sum(l => l.EstimatedAmount);
+                var tax = Math.Round(taxable * g.Key.GstPercent / 100m, 2, MidpointRounding.AwayFromZero);
+                var half = Math.Round(tax / 2m, 2, MidpointRounding.AwayFromZero);
+                return new InvoiceTaxSummaryDto
+                {
+                    HsnCode       = g.Key.HsnCode,
+                    GstPercent    = g.Key.GstPercent,
+                    TaxableAmount = taxable,
+                    CgstAmount    = interState ? 0m : half,
+                    SgstAmount    = interState ? 0m : tax - half,
+                    IgstAmount    = interState ? tax : 0m,
+                    TotalTax      = tax
+                };
+            })
+            .OrderBy(s => s.GstPercent)
+            .ToList();
+
+        var subTotal = order.Lines.Sum(l => l.EstimatedAmount);
+        var cgst = taxSummary.Sum(s => s.CgstAmount);
+        var sgst = taxSummary.Sum(s => s.SgstAmount);
+        var igst = taxSummary.Sum(s => s.IgstAmount);
+        var grandRaw = subTotal + cgst + sgst + igst;
+        var grand = Math.Round(grandRaw, 0, MidpointRounding.AwayFromZero);
+
+        return new PurchaseOrderPrintDto
+        {
+            Shop                 = shop,
+            Order                = order,
+            Supplier             = supplier,
+            DeliveryLocationName = deliveryLocation,
+            IsInterState         = interState,
+            TaxSummary           = taxSummary,
+            TotalPacks           = (int)Math.Round(order.Lines.Sum(l => l.NoOfPacks), 0, MidpointRounding.AwayFromZero),
+            SubTotal             = subTotal,
+            TaxableAmount        = subTotal,
+            CgstAmount           = cgst,
+            SgstAmount           = sgst,
+            IgstAmount           = igst,
+            RoundOff             = grand - grandRaw,
+            GrandTotal           = grand,
+            AmountInWords        = AmountToWords.Convert(grand)
+        };
     }
 
     public async Task<PurchaseOrderDto> CreateOrderAsync(
@@ -999,6 +1236,11 @@ public class PurchaseService : IPurchaseService
                 OrderedQty      = line.OrderedQty,
                 UnitId          = line.UnitId ?? item.UnitId,
                 Rate            = line.Rate > 0 ? line.Rate : item.PurchaseRate,
+                NoOfPacks       = line.NoOfPacks,
+                QtyPerPack      = line.QtyPerPack,
+                RequiredQty     = line.RequiredQty,
+                Remarks         = line.Remarks,
+                ItemRemark      = line.ItemRemark,
                 RequisitionDetailId = line.RequisitionDetailId
             }, ct);
 
@@ -1087,6 +1329,11 @@ public class PurchaseService : IPurchaseService
                     OrderedQty          = line.OrderedQty,
                     UnitId              = line.UnitId ?? item.UnitId,
                     Rate                = rate,
+                    NoOfPacks           = line.NoOfPacks,
+                    QtyPerPack          = line.QtyPerPack,
+                    RequiredQty         = line.RequiredQty,
+                    Remarks             = line.Remarks,
+                    ItemRemark          = line.ItemRemark,
                     RequisitionDetailId = line.RequisitionDetailId
                 }, token);
 
@@ -1149,9 +1396,69 @@ public class PurchaseService : IPurchaseService
         return PagedResult<PurchaseRequisitionDto>.Create(items, parameters.Page, parameters.PageSize, totalCount);
     }
 
+    /// <summary>
+    /// The requisition list flattened to one row PER LINE ITEM (item-wise view):
+    /// a 5-item requisition returns 5 rows, each carrying its parent's number,
+    /// date, location and status. Same filters/paging as GetRequisitionsAsync.
+    /// </summary>
+    public async Task<PagedResult<PurchaseRequisitionItemRowDto>> GetRequisitionItemsAsync(
+        PurchaseRequisitionQueryParameters parameters, CancellationToken ct = default)
+    {
+        var search = parameters.NormalizedSearch;
+
+        var query = _uow.Repository<PurchaseRequisitionDetail>().Query()
+            .WhereIf(parameters.Status.HasValue, d => d.Requisition!.Status == parameters.Status!.Value)
+            .WhereIf(parameters.FromDate.HasValue, d => d.Requisition!.RequisitionDate >= parameters.FromDate!.Value.Date)
+            .WhereIf(parameters.ToDate.HasValue, d => d.Requisition!.RequisitionDate <= parameters.ToDate!.Value.Date)
+            .WhereIf(parameters.PendingOnly == true,
+                     d => d.Requisition!.Status == PurchaseRequisitionStatus.Open
+                       || d.Requisition!.Status == PurchaseRequisitionStatus.Partial)
+            .WhereIf(search is not null, d =>
+                d.Requisition!.RequisitionNumber.Contains(search!)
+                || d.Item!.ItemName.Contains(search!)
+                || d.Item!.ItemCode.Contains(search!));
+
+        var totalCount = await query.CountAsync(ct);
+
+        if (totalCount == 0)
+            return PagedResult<PurchaseRequisitionItemRowDto>.Empty(parameters.Page, parameters.PageSize);
+
+        var items = await query
+            .OrderByDescending(d => d.Requisition!.RequisitionDate)
+            .ThenByDescending(d => d.RequisitionId)
+            .ThenBy(d => d.LineNumber)
+            .Skip(parameters.Skip).Take(parameters.PageSize)
+            .Select(d => new PurchaseRequisitionItemRowDto
+            {
+                RequisitionId       = d.RequisitionId,
+                RequisitionNumber   = d.Requisition!.RequisitionNumber,
+                RequisitionDate     = d.Requisition.RequisitionDate,
+                LocationId          = d.Requisition.LocationId,
+                LocationName        = d.Requisition.Location!.LocationName,
+                Status              = d.Requisition.Status,
+                RequisitionDetailId = d.RequisitionDetailId,
+                ItemCode            = d.Item!.ItemCode,
+                ItemName            = d.Item.ItemName,
+                ItemGroupName       = d.Item.ItemGroup!.ItemGroupName,
+                ItemSubGroupName    = d.Item.ItemSubGroup!.ItemSubGroupName,
+                UnitCode            = d.Unit!.UnitCode,
+                RequiredQty         = d.RequiredQty,
+                PendingQty          = d.PendingQty,
+                EstimatedRate       = d.EstimatedRate,
+                EstimatedAmount     = d.RequiredQty * d.EstimatedRate
+            })
+            .ToListAsync(ct);
+
+        return PagedResult<PurchaseRequisitionItemRowDto>.Create(items, parameters.Page, parameters.PageSize, totalCount);
+    }
+
     /// <summary>The number the next requisition would get, for showing on the create form.</summary>
     public Task<string?> PeekNextRequisitionNumberAsync(CancellationToken ct = default)
         => _numbers.PeekNextAsync(DocumentType.PurchaseRequisition, ct);
+
+    /// <summary>The number the next purchase order would get, for showing on the create form.</summary>
+    public Task<string?> PeekNextOrderNumberAsync(CancellationToken ct = default)
+        => _numbers.PeekNextAsync(DocumentType.PurchaseOrder, ct);
 
     public async Task<PurchaseRequisitionDto> GetRequisitionAsync(long id, CancellationToken ct = default)
     {
@@ -1178,7 +1485,10 @@ public class PurchaseService : IPurchaseService
             {
                 RequisitionDetailId = d.RequisitionDetailId,
                 ItemId        = d.ItemId,
-                ItemName      = d.Item!.ItemName,
+                ItemCode         = d.Item!.ItemCode,
+                ItemGroupName    = d.Item.ItemGroup!.ItemGroupName,
+                ItemSubGroupName = d.Item.ItemSubGroup!.ItemSubGroupName,
+                ItemName      = d.Item.ItemName,
                 UnitId        = d.UnitId,
                 UnitCode      = d.Unit!.UnitCode,
                 RequiredQty   = d.RequiredQty,

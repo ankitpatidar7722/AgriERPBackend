@@ -46,19 +46,20 @@ internal static class ColumnShapes
     public static PropertyBuilder<DateTime?> AsNullableDate(this PropertyBuilder<DateTime?> b)
         => b.HasColumnType("date");
 
-    /// <summary>DATETIME2(3) - audit timestamps, stored UTC.</summary>
+    /// <summary>Millisecond-precision audit timestamp, stored UTC. datetime2(3)
+    /// on SQL Server, timestamp(3) on PostgreSQL.</summary>
     public static PropertyBuilder<DateTime> AsTimestamp(this PropertyBuilder<DateTime> b)
-        => b.HasColumnType("datetime2(3)");
+        => b.HasColumnType(TimestampType);
 
     public static PropertyBuilder<DateTime?> AsNullableTimestamp(this PropertyBuilder<DateTime?> b)
-        => b.HasColumnType("datetime2(3)");
+        => b.HasColumnType(TimestampType);
 
     /// <summary>
     /// CreatedAt: DB default SYSUTCDATETIME() applies when the property is left
     /// at default(DateTime), and an explicitly set value still wins.
     /// </summary>
     public static PropertyBuilder<DateTime> AsCreatedAt(this PropertyBuilder<DateTime> b)
-        => b.HasColumnType("datetime2(3)").HasDefaultValueSql("SYSUTCDATETIME()");
+        => b.HasColumnType(TimestampType).HasDefaultValueSql(UtcNowSql);
 
     /// <summary>
     /// A PERSISTED computed column. EF must never write these - the database
@@ -67,4 +68,14 @@ internal static class ColumnShapes
     /// </summary>
     public static PropertyBuilder<T> AsComputed<T>(this PropertyBuilder<T> b, string sql)
         => b.HasComputedColumnSql(sql, stored: true).ValueGeneratedOnAddOrUpdate();
+
+    // datetime2 is SQL Server's; PostgreSQL's equivalent is timestamp. Both
+    // hold a wall-clock UTC value at millisecond precision here.
+    private static string TimestampType
+        => ModelBuildProvider.IsNpgsql ? "timestamp(3)" : "datetime2(3)";
+
+    // A UTC "now" default in each dialect. PostgreSQL's now() is timestamptz,
+    // converted to a plain timestamp at UTC to match the timestamp(3) column.
+    private static string UtcNowSql
+        => ModelBuildProvider.IsNpgsql ? "(now() at time zone 'utc')" : "SYSUTCDATETIME()";
 }

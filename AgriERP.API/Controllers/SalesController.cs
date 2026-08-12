@@ -52,6 +52,12 @@ public class SalesController : BaseApiController
     public async Task<IActionResult> GetForPrint(long id, CancellationToken ct)
         => Success(await _sales.GetInvoiceForPrintAsync(id, ct));
 
+    /// <summary>Sales-order document: ShopMaster letterhead, customer, lines and totals. Does not bump the print count.</summary>
+    [HasPermission(Permissions.Sales.Print)]
+    [HttpGet("{id:long}/sales-order-print")]
+    public async Task<IActionResult> GetSalesOrderForPrint(long id, CancellationToken ct)
+        => Success(await _sales.GetSalesOrderForPrintAsync(id, ct));
+
     /* ---------------- returns ---------------- */
 
     [HasPermission(Permissions.Sales.View)]

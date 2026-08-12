@@ -18,6 +18,11 @@ public class ShopsController : BaseApiController
     public async Task<IActionResult> GetPaged([FromQuery] ShopQueryParameters parameters, CancellationToken ct)
         => Success(await _shops.GetPagedAsync(parameters, ct));
 
+    /// <summary>The active shop's identity for the app header. Any signed-in user (no Settings permission).</summary>
+    [HttpGet("current")]
+    public async Task<IActionResult> GetCurrent(CancellationToken ct)
+        => Success(await _shops.GetCurrentAsync(ct));
+
     [HasPermission(Permissions.Settings.View)]
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)

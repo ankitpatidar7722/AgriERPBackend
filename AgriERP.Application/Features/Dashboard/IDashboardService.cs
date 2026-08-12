@@ -95,5 +95,8 @@ public class DashboardDto
 /// </summary>
 public interface IDashboardService
 {
-    Task<DashboardDto> GetAsync(DateTime? asOnDate, int topCount, int graphMonths, CancellationToken ct = default);
+    Task<DashboardDto> GetAsync(
+        DateTime? asOnDate, int topCount, int graphMonths,
+        DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken ct = default);
 }

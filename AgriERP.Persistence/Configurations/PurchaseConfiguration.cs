@@ -38,7 +38,7 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(15).IsRequired();
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Supplier).WithMany().HasForeignKey(x => x.SupplierId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -64,7 +64,11 @@ public class PurchaseOrderDetailConfiguration : IEntityTypeConfiguration<Purchas
         b.Property(x => x.Rate).AsRate();
         b.Property(x => x.EstimatedAmount).AsAmount()
          .AsComputed("CONVERT([decimal](18,2),[OrderedQty]*[Rate])");
+        b.Property(x => x.NoOfPacks).AsQuantity();
+        b.Property(x => x.QtyPerPack).AsQuantity();
+        b.Property(x => x.RequiredQty).AsNullableQuantity();
         b.Property(x => x.Remarks).HasMaxLength(300);
+        b.Property(x => x.ItemRemark).HasMaxLength(300);
 
         b.HasOne(x => x.PurchaseOrder).WithMany(o => o.Details).HasForeignKey(x => x.PurchaseOrderId)
          .OnDelete(DeleteBehavior.Cascade);
@@ -94,7 +98,7 @@ public class PurchaseRequisitionConfiguration : IEntityTypeConfiguration<Purchas
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(15).IsRequired();
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Location).WithMany().HasForeignKey(x => x.LocationId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -168,7 +172,7 @@ public class PurchaseConfiguration : IEntityTypeConfiguration<Purchase>
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Supplier).WithMany().HasForeignKey(x => x.SupplierId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -272,7 +276,7 @@ public class PurchaseReturnConfiguration : IEntityTypeConfiguration<PurchaseRetu
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.Supplier).WithMany().HasForeignKey(x => x.SupplierId)
          .OnDelete(DeleteBehavior.Restrict);

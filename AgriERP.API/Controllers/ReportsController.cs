@@ -63,10 +63,22 @@ public class ReportsController : BaseApiController
     public async Task<IActionResult> SalesReport([FromQuery] DateRangeRequest range, CancellationToken ct)
         => Success(await _reports.GetSalesReportAsync(range, ct));
 
+    /// <summary>Sales rolled up per customer over a period.</summary>
+    [HasPermission(Permissions.Report.Sales)]
+    [HttpGet("sales-by-customer")]
+    public async Task<IActionResult> SalesByCustomer([FromQuery] DateRangeRequest range, CancellationToken ct)
+        => Success(await _reports.GetSalesByCustomerAsync(range, ct));
+
     [HasPermission(Permissions.Report.Purchase)]
     [HttpGet("purchase")]
     public async Task<IActionResult> PurchaseReport([FromQuery] DateRangeRequest range, CancellationToken ct)
         => Success(await _reports.GetPurchaseReportAsync(range, ct));
+
+    /// <summary>Purchases rolled up per supplier over a period.</summary>
+    [HasPermission(Permissions.Report.Purchase)]
+    [HttpGet("purchase-by-supplier")]
+    public async Task<IActionResult> PurchaseBySupplier([FromQuery] DateRangeRequest range, CancellationToken ct)
+        => Success(await _reports.GetPurchaseBySupplierAsync(range, ct));
 
     [HasPermission(Permissions.Report.Profit)]
     [HttpGet("profit")]

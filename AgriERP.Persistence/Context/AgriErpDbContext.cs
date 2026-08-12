@@ -7,6 +7,7 @@ using AgriERP.Domain.Entities.Sales;
 using AgriERP.Domain.Entities.Security;
 using AgriERP.Domain.Entities.System;
 using AgriERP.Domain.ReadModels;
+using AgriERP.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 
@@ -120,6 +121,7 @@ public class AgriErpDbContext : DbContext
     public DbSet<StockLedgerView> StockLedger => Set<StockLedgerView>();
     public DbSet<CustomerOutstandingView> CustomerOutstanding => Set<CustomerOutstandingView>();
     public DbSet<CustomerLedgerView> CustomerLedger => Set<CustomerLedgerView>();
+    public DbSet<SupplierLedgerView> SupplierLedger => Set<SupplierLedgerView>();
     public DbSet<SupplierOutstandingView> SupplierOutstanding => Set<SupplierOutstandingView>();
     public DbSet<ItemSubGroupWiseStockView> ItemSubGroupWiseStock => Set<ItemSubGroupWiseStockView>();
     public DbSet<DailySalesSummaryView> DailySalesSummary => Set<DailySalesSummaryView>();
@@ -128,7 +130,18 @@ public class AgriErpDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+
+        // Tell the ColumnShapes / concurrency helpers which dialect to emit
+        // before the per-entity configurations run. Scoped to this build.
+        ModelBuildProvider.Begin(Database.ProviderName);
+        try
+        {
+            modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+        }
+        finally
+        {
+            ModelBuildProvider.End();
+        }
     }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)

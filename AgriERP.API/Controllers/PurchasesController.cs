@@ -17,6 +17,13 @@ public class PurchasesController : BaseApiController
     public async Task<IActionResult> GetPaged([FromQuery] PurchaseQueryParameters parameters, CancellationToken ct)
         => Success(await _purchases.GetPagedAsync(parameters, ct));
 
+    /// <summary>The GRN list flattened one row per line item (item-wise view).</summary>
+    [HasPermission(Permissions.Purchase.View)]
+    [HttpGet("items")]
+    public async Task<IActionResult> GetPurchaseItems(
+        [FromQuery] PurchaseQueryParameters parameters, CancellationToken ct)
+        => Success(await _purchases.GetPurchaseItemsAsync(parameters, ct));
+
     [HasPermission(Permissions.Purchase.View)]
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetById(long id, CancellationToken ct)
@@ -86,10 +93,29 @@ public class PurchasesController : BaseApiController
         [FromQuery] PurchaseOrderQueryParameters parameters, CancellationToken ct)
         => Success(await _purchases.GetOrdersAsync(parameters, ct));
 
+    /// <summary>The order list flattened one row per line item (item-wise view).</summary>
+    [HasPermission(Permissions.Purchase.Order)]
+    [HttpGet("orders/items")]
+    public async Task<IActionResult> GetOrderItems(
+        [FromQuery] PurchaseOrderQueryParameters parameters, CancellationToken ct)
+        => Success(await _purchases.GetOrderItemsAsync(parameters, ct));
+
+    /// <summary>Indicative next purchase-order number for the create form. Does not consume the series.</summary>
+    [HasPermission(Permissions.Purchase.Order)]
+    [HttpGet("orders/next-number")]
+    public async Task<IActionResult> PeekNextOrderNumber(CancellationToken ct)
+        => Success(new { number = await _purchases.PeekNextOrderNumberAsync(ct) });
+
     [HasPermission(Permissions.Purchase.Order)]
     [HttpGet("orders/{id:long}")]
     public async Task<IActionResult> GetOrder(long id, CancellationToken ct)
         => Success(await _purchases.GetOrderAsync(id, ct));
+
+    /// <summary>Shop letterhead, supplier, order lines and estimated totals for the printable purchase order.</summary>
+    [HasPermission(Permissions.Purchase.Order)]
+    [HttpGet("orders/{id:long}/print")]
+    public async Task<IActionResult> GetOrderForPrint(long id, CancellationToken ct)
+        => Success(await _purchases.GetOrderForPrintAsync(id, ct));
 
     [HasPermission(Permissions.Purchase.Order)]
     [HttpPost("orders")]
@@ -109,6 +135,13 @@ public class PurchasesController : BaseApiController
     public async Task<IActionResult> GetRequisitions(
         [FromQuery] PurchaseRequisitionQueryParameters parameters, CancellationToken ct)
         => Success(await _purchases.GetRequisitionsAsync(parameters, ct));
+
+    /// <summary>The requisition list flattened one row per line item (item-wise view).</summary>
+    [HasPermission(Permissions.Purchase.Order)]
+    [HttpGet("requisitions/items")]
+    public async Task<IActionResult> GetRequisitionItems(
+        [FromQuery] PurchaseRequisitionQueryParameters parameters, CancellationToken ct)
+        => Success(await _purchases.GetRequisitionItemsAsync(parameters, ct));
 
     /// <summary>Indicative next requisition number for the create form. Does not consume the series.</summary>
     [HasPermission(Permissions.Purchase.Order)]

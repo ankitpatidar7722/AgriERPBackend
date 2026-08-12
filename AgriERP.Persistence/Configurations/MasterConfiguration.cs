@@ -34,7 +34,7 @@ public class UnitConfiguration : IEntityTypeConfiguration<Unit>
         b.Property(x => x.Description).HasMaxLength(150);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasIndex(x => x.UnitCode).IsUnique().HasFilter("[IsDeleted] = 0")
          .HasDatabaseName("UQ_Units_UnitCode");
@@ -94,7 +94,7 @@ public class StorageLocationConfiguration : IEntityTypeConfiguration<StorageLoca
         b.Property(x => x.Remarks).HasMaxLength(300);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.ParentLocation)
          .WithMany(x => x.ChildLocations)
@@ -136,7 +136,7 @@ public class ItemSubGroupConfiguration : IEntityTypeConfiguration<ItemSubGroup>
         b.Property(x => x.IconName).HasMaxLength(40);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.ItemGroup).WithMany(g => g.SubGroups).HasForeignKey(x => x.ItemGroupId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -175,7 +175,7 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.State).WithMany().HasForeignKey(x => x.StateId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -203,7 +203,7 @@ public class ShopMasterConfiguration : IEntityTypeConfiguration<ShopMaster>
         b.Property(x => x.Email).HasMaxLength(150);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.State).WithMany().HasForeignKey(x => x.StateId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -225,7 +225,7 @@ public class WarehouseMasterConfiguration : IEntityTypeConfiguration<WarehouseMa
         b.Property(x => x.Address).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasMany(x => x.Bins).WithOne(x => x.Warehouse)
          .HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Cascade);
@@ -278,7 +278,7 @@ public class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.State).WithMany().HasForeignKey(x => x.StateId)
          .OnDelete(DeleteBehavior.Restrict);
@@ -317,7 +317,7 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         b.Property(x => x.Remarks).HasMaxLength(500);
         b.Property(x => x.CreatedAt).AsCreatedAt();
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
-        b.Property(x => x.RowVersion).IsRowVersion();
+        b.HasRowVersionConcurrency();
 
         b.HasOne(x => x.State).WithMany().HasForeignKey(x => x.StateId)
          .OnDelete(DeleteBehavior.Restrict);

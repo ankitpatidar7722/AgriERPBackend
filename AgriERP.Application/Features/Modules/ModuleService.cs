@@ -49,7 +49,9 @@ public class ModuleService : IModuleService
     private static readonly IReadOnlyDictionary<string, string[]> RoutePermissions =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
-            ["/dashboard"]  = [Permissions.Dashboard.View],
+            ["/dashboard"]          = [Permissions.Dashboard.View],
+            ["/dashboard/sales"]    = [Permissions.Dashboard.View],
+            ["/dashboard/purchase"] = [Permissions.Dashboard.View],
             ["/sales"]      = [Permissions.Sales.View],
             ["/purchases"]  = [Permissions.Purchase.View],
             ["/payments"]   = [Permissions.Payment.View],

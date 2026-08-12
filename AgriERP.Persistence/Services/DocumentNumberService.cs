@@ -2,22 +2,22 @@ using AgriERP.Application.Common.Interfaces;
 using AgriERP.Persistence.Context;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using System.Data;
+using System.Data.Common;
 
 namespace AgriERP.Persistence.Services;
 
 /// <summary>
-/// Thin wrapper over usp_GetNextDocumentNumber.
+/// Next-document-number routine, one provider on each side of the same contract:
+///   SQL Server  -> usp_GetNextDocumentNumber (@.. OUTPUT)
+///   PostgreSQL  -> fn_get_next_document_number($1, $2)
 ///
-/// The counter increment stays in the database on purpose. Reading
-/// CurrentNumber into C#, adding one and writing it back gives two salesmen
-/// pressing Save at the same instant the same invoice number - and a duplicate
-/// or missing invoice number is the first thing a GST auditor finds.
-///
-/// The procedure does read-and-increment in a single atomic UPDATE, so SQL
-/// Server's own row lock serialises callers. Because this runs on the
-/// DbContext connection, it also joins whatever transaction the caller has
-/// open: if invoice posting rolls back, the number is released with it.
+/// Both do the read-increment-return as ONE atomic statement, so two salesmen
+/// pressing Save at the same instant are serialised by the engine and receive
+/// consecutive numbers - a duplicate or missing invoice number is the first
+/// thing a GST auditor finds. Runs on the DbContext connection and joins the
+/// caller's open transaction, so a rolled-back invoice releases its number too.
 /// </summary>
 public class DocumentNumberService : IDocumentNumberService
 {
@@ -27,6 +27,10 @@ public class DocumentNumberService : IDocumentNumberService
 
     public async Task<string> NextAsync(string documentType, CancellationToken ct = default)
     {
+        if (_context.Database.IsNpgsql())
+            return await NextNpgsqlAsync(documentType, ct);
+
+        // ---------------------------- SQL Server ----------------------------
         var documentTypeParameter = new SqlParameter("@DocumentType", SqlDbType.NVarChar, 30)
         {
             Value = documentType
@@ -34,8 +38,7 @@ public class DocumentNumberService : IDocumentNumberService
 
         var financialYearParameter = new SqlParameter("@FinancialYearId", SqlDbType.Int)
         {
-            // NULL lets the procedure resolve the active financial year itself,
-            // so callers never have to know which year is open.
+            // NULL lets the procedure resolve the active financial year itself.
             Value = DBNull.Value
         };
 
@@ -49,29 +52,56 @@ public class DocumentNumberService : IDocumentNumberService
             new object[] { documentTypeParameter, financialYearParameter, documentNumberParameter },
             ct);
 
-        return documentNumberParameter.Value as string
-            ?? throw new InvalidOperationException(
-                $"No active number series is configured for document type '{documentType}'.");
+        return documentNumberParameter.Value as string ?? throw NoSeries(documentType);
+    }
+
+    private async Task<string> NextNpgsqlAsync(string documentType, CancellationToken ct)
+    {
+        var connection = _context.Database.GetDbConnection();
+        var wasClosed = connection.State == ConnectionState.Closed;
+        if (wasClosed) await connection.OpenAsync(ct);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            EnlistTransaction(command);
+            command.CommandText =
+                "SELECT fn_get_next_document_number(@DocumentType::text, @FinancialYearId::int)";
+            AddParam(command, "DocumentType", documentType);
+            AddParam(command, "FinancialYearId", DBNull.Value);
+
+            return (await command.ExecuteScalarAsync(ct)) as string ?? throw NoSeries(documentType);
+        }
+        finally
+        {
+            if (wasClosed) await connection.CloseAsync();
+        }
     }
 
     public async Task<string?> PeekNextAsync(string documentType, CancellationToken ct = default)
     {
-        // The same formatting as usp_GetNextDocumentNumber, but read-only:
-        // CurrentNumber + 1 with no UPDATE, so the series is not consumed. Used
-        // to show an indicative number on a create form; the real number is
-        // still assigned atomically by the procedure on save.
-        var documentTypeParameter = new SqlParameter("@DocumentType", SqlDbType.NVarChar, 30)
+        // Read-only: CurrentNumber + 1 with no UPDATE, so the series is not
+        // consumed. Used to show an indicative number on a create form; the real
+        // number is still assigned atomically by NextAsync on save.
+        var connection = _context.Database.GetDbConnection();
+        var wasClosed = connection.State == ConnectionState.Closed;
+        if (wasClosed) await connection.OpenAsync(ct);
+        try
         {
-            Value = documentType
-        };
+            await using var command = connection.CreateCommand();
+            EnlistTransaction(command);
+            command.CommandText = _context.Database.IsNpgsql() ? PeekNpgsql : PeekSqlServer;
+            AddParam(command, "DocumentType", documentType);
 
-        var documentNumberParameter = new SqlParameter("@DocumentNumber", SqlDbType.NVarChar, 30)
+            return (await command.ExecuteScalarAsync(ct)) as string;
+        }
+        finally
         {
-            Direction = ParameterDirection.Output
-        };
+            if (wasClosed) await connection.CloseAsync();
+        }
+    }
 
-        const string sql = @"
-SELECT TOP (1) @DocumentNumber =
+    private const string PeekSqlServer = @"
+SELECT TOP (1)
        ns.Prefix
      + CASE WHEN ns.IncludeYearCode = 1 AND fy.YearCode IS NOT NULL
             THEN ns.Separator + fy.YearCode ELSE N'' END
@@ -87,9 +117,37 @@ WHERE ns.DocumentType = @DocumentType
 ORDER BY CASE WHEN ns.FinancialYearId = (SELECT FinancialYearId FROM FinancialYears WHERE IsActive = 1) THEN 0 ELSE 1 END,
          ns.NumberSeriesId;";
 
-        await _context.Database.ExecuteSqlRawAsync(
-            sql, new object[] { documentTypeParameter, documentNumberParameter }, ct);
+    private const string PeekNpgsql = @"
+SELECT ns.""Prefix""
+     || CASE WHEN ns.""IncludeYearCode"" AND fy.""YearCode"" IS NOT NULL
+             THEN ns.""Separator"" || fy.""YearCode"" ELSE '' END
+     || ns.""Separator""
+     || right(repeat('0', ns.""PaddingLength"") || (ns.""CurrentNumber"" + 1)::text, ns.""PaddingLength"")
+     || ns.""Suffix""
+FROM ""NumberSeries"" AS ns
+LEFT JOIN ""FinancialYears"" AS fy
+       ON fy.""FinancialYearId"" = COALESCE(ns.""FinancialYearId"", (SELECT ""FinancialYearId"" FROM ""FinancialYears"" WHERE ""IsActive"" = true))
+WHERE ns.""DocumentType"" = @DocumentType
+  AND ns.""IsActive"" = true
+  AND (ns.""FinancialYearId"" = (SELECT ""FinancialYearId"" FROM ""FinancialYears"" WHERE ""IsActive"" = true) OR ns.""FinancialYearId"" IS NULL)
+ORDER BY CASE WHEN ns.""FinancialYearId"" = (SELECT ""FinancialYearId"" FROM ""FinancialYears"" WHERE ""IsActive"" = true) THEN 0 ELSE 1 END,
+         ns.""NumberSeriesId""
+LIMIT 1;";
 
-        return documentNumberParameter.Value as string;
+    private void EnlistTransaction(DbCommand command)
+    {
+        if (_context.Database.CurrentTransaction is { } transaction)
+            command.Transaction = transaction.GetDbTransaction();
     }
+
+    private static void AddParam(DbCommand command, string name, object? value)
+    {
+        var p = command.CreateParameter();
+        p.ParameterName = name;
+        p.Value = value ?? DBNull.Value;
+        command.Parameters.Add(p);
+    }
+
+    private static InvalidOperationException NoSeries(string documentType)
+        => new($"No active number series is configured for document type '{documentType}'.");
 }

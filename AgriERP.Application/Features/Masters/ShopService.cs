@@ -13,6 +13,7 @@ namespace AgriERP.Application.Features.Masters;
 public interface IShopService
 {
     Task<PagedResult<ShopListDto>> GetPagedAsync(ShopQueryParameters parameters, CancellationToken ct = default);
+    Task<ShopListDto?> GetCurrentAsync(CancellationToken ct = default);
     Task<ShopDto> GetByIdAsync(int id, CancellationToken ct = default);
     Task<ShopDto> CreateAsync(SaveShopRequest request, CancellationToken ct = default);
     Task<ShopDto> UpdateAsync(int id, SaveShopRequest request, CancellationToken ct = default);
@@ -59,6 +60,14 @@ public class ShopService : IShopService
 
         static string sortKey(string? s) => s?.Trim().ToLowerInvariant() ?? "name";
     }
+
+    /// <summary>The shop the app runs as: the first active shop. Drives the header identity.</summary>
+    public async Task<ShopListDto?> GetCurrentAsync(CancellationToken ct = default)
+        => await _uow.Repository<ShopMaster>().Query()
+               .Where(s => !s.IsDeleted && s.IsActive)
+               .OrderBy(s => s.ShopId)
+               .ProjectTo<ShopListDto>(_mapper.ConfigurationProvider)
+               .FirstOrDefaultAsync(ct);
 
     public async Task<ShopDto> GetByIdAsync(int id, CancellationToken ct = default)
         => await _uow.Repository<ShopMaster>().Query()
