@@ -15,12 +15,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
-# Render routes to the port the app listens on; 8080 is exposed below.
-ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 # Honour Render's X-Forwarded-Proto so UseHttpsRedirection does not loop behind
 # the TLS-terminating proxy.
 ENV ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 EXPOSE 8080
 
-ENTRYPOINT ["dotnet", "AgriERP.API.dll"]
+# Render assigns the listening port via $PORT; bind to it (fallback 8080 locally).
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=http://+:${PORT:-8080} exec dotnet AgriERP.API.dll"]
