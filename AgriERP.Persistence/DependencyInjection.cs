@@ -37,6 +37,13 @@ public static class DependencyInjection
                 case "postgresql":
                 case "postgres":
                 case "npgsql":
+                    // Audit timestamps are DateTime.UtcNow (Kind=Utc) and the
+                    // PostgreSQL columns are timestamp(3) (without time zone).
+                    // Npgsql 6+ otherwise refuses to write a Kind=Utc DateTime to a
+                    // 'timestamp without time zone' column; this restores storing the
+                    // UTC value as-is. Set before the data source is built.
+                    AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
                     options.UseNpgsql(connectionString, npgsql =>
                     {
                         npgsql.CommandTimeout(60);

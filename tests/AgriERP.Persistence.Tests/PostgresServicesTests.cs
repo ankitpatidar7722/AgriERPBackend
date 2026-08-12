@@ -1,6 +1,7 @@
 using AgriERP.Application.Common.Exceptions;
 using AgriERP.Application.Common.Interfaces;
 using AgriERP.Application.Features.Dashboard;
+using AgriERP.Domain.Entities.Security;
 using AgriERP.Domain.Enums;
 using AgriERP.Persistence.Context;
 using AgriERP.Persistence.Services;
@@ -95,6 +96,32 @@ INSERT INTO ""TransactionTypes""(""TransactionTypeId"",""TypeCode"",""TypeName""
         // Outward 500 against 100 on hand, AllowNegativeStock = false.
         var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => stock.PostAsync(Movement(2, 500m)));
         Assert.Contains("Insufficient stock", ex.Message);
+
+        await tx.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task Ef_savechanges_writes_utc_audit_timestamp_on_postgres()
+    {
+        // Regression for the Neon deploy crash: EF writing DateTime.UtcNow
+        // (Kind=Utc) into a timestamp(3) column threw "Cannot write DateTime with
+        // Kind=UTC to timestamp without time zone" until EnableLegacyTimestampBehavior.
+        await using var context = NewContext();
+        if (!await context.Database.CanConnectAsync()) return;
+
+        await using var tx = await context.Database.BeginTransactionAsync();
+
+        var role = new Role
+        {
+            RoleName = "ZZ_UtcRegression",
+            Description = "utc timestamp regression",
+            IsSystemRole = false,
+            CreatedAt = DateTime.UtcNow   // the exact value that crashed the seeder
+        };
+        context.Roles.Add(role);
+
+        await context.SaveChangesAsync();   // must not throw
+        Assert.True(role.RoleId > 0);
 
         await tx.RollbackAsync();
     }
