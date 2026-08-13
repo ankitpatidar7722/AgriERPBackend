@@ -85,6 +85,7 @@ ALTER TABLE "PurchaseDetails" ADD CONSTRAINT "FK_PurchaseDetails_Batch"    FOREI
 ALTER TABLE "PurchaseDetails" ADD CONSTRAINT "FK_PurchaseDetails_Product"  FOREIGN KEY ("ItemId")     REFERENCES "ItemMaster" ("ItemId");
 ALTER TABLE "PurchaseDetails" ADD CONSTRAINT "FK_PurchaseDetails_Purchase" FOREIGN KEY ("PurchaseId") REFERENCES "Purchases" ("PurchaseId") ON DELETE CASCADE;
 ALTER TABLE "PurchaseDetails" ADD CONSTRAINT "FK_PurchaseDetails_Unit"     FOREIGN KEY ("UnitId")     REFERENCES "Units" ("UnitId");
+ALTER TABLE "PurchaseDetails" ADD CONSTRAINT "FK_PurchaseDetails_OrderDetail" FOREIGN KEY ("PurchaseOrderDetailId") REFERENCES "PurchaseOrderDetails" ("PurchaseOrderDetailId");
 ALTER TABLE "PurchaseReturns"       ADD CONSTRAINT "FK_PurchaseReturns_Location" FOREIGN KEY ("LocationId") REFERENCES "StorageLocations" ("LocationId");
 ALTER TABLE "PurchaseReturns"       ADD CONSTRAINT "FK_PurchaseReturns_Purchase" FOREIGN KEY ("PurchaseId") REFERENCES "Purchases" ("PurchaseId");
 ALTER TABLE "PurchaseReturns"       ADD CONSTRAINT "FK_PurchaseReturns_Supplier" FOREIGN KEY ("SupplierId") REFERENCES "Suppliers" ("SupplierId");

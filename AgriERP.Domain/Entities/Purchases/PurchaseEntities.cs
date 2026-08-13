@@ -213,6 +213,13 @@ public class PurchaseDetail
     public int LineNumber { get; set; }
     public int ItemId { get; set; }
 
+    /// <summary>
+    /// The purchase-order line this receipt fills, when receiving against one or
+    /// more pending orders. Null for a direct stock-in. Lets a single GRN draw
+    /// lines from several POs and reconcile each line back to its own order.
+    /// </summary>
+    public long? PurchaseOrderDetailId { get; set; }
+
     /// <summary>Resolved or created when the purchase is posted.</summary>
     public long? BatchId { get; set; }
 

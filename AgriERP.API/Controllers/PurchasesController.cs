@@ -111,6 +111,21 @@ public class PurchasesController : BaseApiController
     public async Task<IActionResult> GetOrder(long id, CancellationToken ct)
         => Success(await _purchases.GetOrderAsync(id, ct));
 
+    /// <summary>Several orders with their lines at once, to build one GRN from
+    /// multiple pending POs of the same supplier. Ids are comma-separated.</summary>
+    [HasPermission(Permissions.Purchase.Order)]
+    [HttpGet("orders/by-ids")]
+    public async Task<IActionResult> GetOrdersByIds([FromQuery] string ids, CancellationToken ct)
+    {
+        var parsed = (ids ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => long.TryParse(s, out var v) ? v : 0)
+            .Where(v => v > 0)
+            .Distinct()
+            .ToList();
+        return Success(await _purchases.GetOrdersByIdsAsync(parsed, ct));
+    }
+
     /// <summary>Shop letterhead, supplier, order lines and estimated totals for the printable purchase order.</summary>
     [HasPermission(Permissions.Purchase.Order)]
     [HttpGet("orders/{id:long}/print")]

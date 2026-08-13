@@ -230,6 +230,10 @@ BEGIN
         PurchaseId          BIGINT          NOT NULL,
         LineNumber          INT             NOT NULL,
         ProductId           INT             NOT NULL,
+        -- The PO line this receipt fills, when receiving against pending orders.
+        -- Null for a direct stock-in. Lets one GRN draw lines from several POs
+        -- and reconcile each line back to its own order.
+        PurchaseOrderDetailId BIGINT        NULL,
         -- Resolved / created when the purchase is posted.
         BatchId             BIGINT          NULL,
 
@@ -282,6 +286,8 @@ BEGIN
             FOREIGN KEY (BatchId)    REFERENCES ProductBatches (BatchId),
         CONSTRAINT FK_PurchaseDetails_Unit
             FOREIGN KEY (UnitId)     REFERENCES Units (UnitId),
+        CONSTRAINT FK_PurchaseDetails_OrderDetail
+            FOREIGN KEY (PurchaseOrderDetailId) REFERENCES PurchaseOrderDetails (PurchaseOrderDetailId),
         CONSTRAINT CK_PurchaseDetails_Quantity CHECK (Quantity > 0 AND FreeQuantity >= 0),
         CONSTRAINT CK_PurchaseDetails_Rate     CHECK (Rate >= 0 AND LandedRate >= 0),
         CONSTRAINT CK_PurchaseDetails_Discount CHECK (DiscountAmount >= 0 AND DiscountPercent >= 0 AND DiscountPercent <= 100)

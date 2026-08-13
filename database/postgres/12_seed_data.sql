@@ -329,10 +329,23 @@ SELECT v.dt, (SELECT "FinancialYearId" FROM "FinancialYears" WHERE "IsActive" = 
        CASE WHEN v.dt IN ('Product','Customer','Supplier') THEN '-' ELSE '/' END
 FROM (VALUES
     ('Sale','INV',5),('SalesReturn','SR',5),('Purchase','PUR',5),('PurchaseReturn','PR',5),
-    ('PurchaseOrder','PO',5),('StockAdjustment','ADJ',5),('StockTransfer','TRF',5),
+    ('PurchaseOrder','PO',5),('PurchaseRequisition','REQ',5),('StockAdjustment','ADJ',5),('StockTransfer','TRF',5),
     ('Receipt','RCT',5),('Payment','PMT',5),('Expense','EXP',5),
     ('Product','PRD',6),('Customer','CUS',5),('Supplier','SUP',5)
 ) AS v(dt, pfx, pad)
+ON CONFLICT DO NOTHING;
+
+-- Per-item-group code series (DocumentType 'Item_<GroupCode>'), one per item
+-- group. Item codes are permanent (no financial-year reset), so FinancialYearId
+-- is NULL and IncludeYearCode is false. Prefix = the group's ItemCodePrefix.
+INSERT INTO "NumberSeries" ("DocumentType","FinancialYearId","Prefix","PaddingLength","IncludeYearCode","Separator")
+SELECT 'Item_' || "ItemGroupCode", NULL, "ItemCodePrefix", 6, false, '-'
+FROM "ItemGroupMaster"
+ON CONFLICT DO NOTHING;
+
+-- Warehouse codes: WH00001 - no financial year, no separator.
+INSERT INTO "NumberSeries" ("DocumentType","FinancialYearId","Prefix","PaddingLength","IncludeYearCode","Separator")
+SELECT 'Warehouse', (SELECT "FinancialYearId" FROM "FinancialYears" WHERE "IsActive" = true), 'WH', 5, false, ''
 ON CONFLICT DO NOTHING;
 
 /*------------------------------ CompanyProfile ----------------------------*/

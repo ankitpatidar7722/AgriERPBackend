@@ -7,6 +7,14 @@ namespace AgriERP.Application.Features.Purchases.Dtos;
 public class PurchaseLineRequest
 {
     public int ItemId { get; set; }
+
+    /// <summary>
+    /// The PO line this receipt fills, when receiving against pending orders.
+    /// Null for a direct stock-in. Drives per-line PO reconciliation, so one GRN
+    /// can span several purchase orders of the same supplier.
+    /// </summary>
+    public long? PurchaseOrderDetailId { get; set; }
+
     public string? BatchNumber { get; set; }
     public DateTime? ManufacturingDate { get; set; }
     public DateTime? ExpiryDate { get; set; }
@@ -59,6 +67,10 @@ public class PurchaseLineDto
     public long PurchaseDetailId { get; set; }
     public int LineNumber { get; set; }
     public int ItemId { get; set; }
+
+    /// <summary>The PO line this receipt filled, so editing a draft keeps the link.</summary>
+    public long? PurchaseOrderDetailId { get; set; }
+
     public string ItemName { get; set; } = string.Empty;
     public string UnitCode { get; set; } = string.Empty;
     public long? BatchId { get; set; }

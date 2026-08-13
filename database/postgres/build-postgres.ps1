@@ -39,7 +39,7 @@ $scripts = @(
     '06_purchase.sql','07_sales.sql','08_finance.sql','09_system.sql',
     '80_foreign_keys.sql','85_views.sql','11_functions.sql'
 )
-if (-not $NoSeed) { $scripts += '12_seed_data.sql' }
+if (-not $NoSeed) { $scripts += '12_seed_data.sql'; $scripts += '13_seed_modules.sql' }
 
 foreach ($s in $scripts) {
     Write-Host "-> $s"

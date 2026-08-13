@@ -178,6 +178,8 @@ CREATE TABLE "PurchaseDetails"
     "PurchaseId"        bigint        NOT NULL,
     "LineNumber"        int           NOT NULL,
     "ItemId"            int           NOT NULL,
+    -- The PO line this receipt fills (nullable; see SQL Server script for why).
+    "PurchaseOrderDetailId" bigint,
     "BatchId"           bigint,
     "BatchNumber"       varchar(50),
     "ManufacturingDate" date,

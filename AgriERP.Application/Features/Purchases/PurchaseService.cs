@@ -34,6 +34,7 @@ public interface IPurchaseService
     Task<PagedResult<PurchaseOrderDto>> GetOrdersAsync(PurchaseOrderQueryParameters parameters, CancellationToken ct = default);
     Task<PagedResult<PurchaseOrderItemRowDto>> GetOrderItemsAsync(PurchaseOrderQueryParameters parameters, CancellationToken ct = default);
     Task<PurchaseOrderDto> GetOrderAsync(long id, CancellationToken ct = default);
+    Task<List<PurchaseOrderDto>> GetOrdersByIdsAsync(IReadOnlyCollection<long> ids, CancellationToken ct = default);
     Task<PurchaseOrderPrintDto> GetOrderForPrintAsync(long id, CancellationToken ct = default);
     Task<PurchaseOrderDto> CreateOrderAsync(SavePurchaseOrderRequest request, CancellationToken ct = default);
     Task<PurchaseOrderDto> UpdateOrderAsync(long id, SavePurchaseOrderRequest request, CancellationToken ct = default);
@@ -260,6 +261,7 @@ public class PurchaseService : IPurchaseService
                 PurchaseDetailId  = d.PurchaseDetailId,
                 LineNumber        = d.LineNumber,
                 ItemId         = d.ItemId,
+                PurchaseOrderDetailId = d.PurchaseOrderDetailId,
                 ItemName       = d.Item!.ItemName,
                 UnitCode          = d.Unit!.UnitCode,
                 BatchId           = d.BatchId,
@@ -503,6 +505,7 @@ public class PurchaseService : IPurchaseService
                 PurchaseId        = purchase.PurchaseId,
                 LineNumber        = ++lineNumber,
                 ItemId         = line.ItemId,
+                PurchaseOrderDetailId = line.PurchaseOrderDetailId,
                 BatchNumber       = string.IsNullOrWhiteSpace(line.BatchNumber) ? "GEN" : line.BatchNumber.Trim(),
                 ManufacturingDate = line.ManufacturingDate,
                 ExpiryDate        = line.ExpiryDate,
@@ -1082,6 +1085,18 @@ public class PurchaseService : IPurchaseService
             .ToListAsync(ct);
 
         return dto;
+    }
+
+    public async Task<List<PurchaseOrderDto>> GetOrdersByIdsAsync(
+        IReadOnlyCollection<long> ids, CancellationToken ct = default)
+    {
+        // Small N (the POs the operator ticked), so fetch each with its lines via
+        // the single-order path rather than a bespoke multi-order projection.
+        var result = new List<PurchaseOrderDto>();
+        if (ids is null) return result;
+        foreach (var id in ids.Distinct())
+            result.Add(await GetOrderAsync(id, ct));
+        return result;
     }
 
     public async Task<PurchaseOrderPrintDto> GetOrderForPrintAsync(long id, CancellationToken ct = default)
@@ -1791,31 +1806,79 @@ public class PurchaseService : IPurchaseService
     private async Task UpdatePurchaseOrderProgressAsync(
         Purchase purchase, List<PurchaseDetail> lines, CancellationToken ct)
     {
+        // A GRN can now draw its lines from several purchase orders of one
+        // supplier, so reconcile each received line back to its own PO line
+        // (PurchaseOrderDetailId) rather than to a single header order.
+        var receivedByOrderLine = lines
+            .Where(l => l.PurchaseOrderDetailId is not null)
+            .GroupBy(l => l.PurchaseOrderDetailId!.Value)
+            .ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
+
+        if (receivedByOrderLine.Count > 0)
+        {
+            var detailIds = receivedByOrderLine.Keys.ToList();
+            var orderLines = await _uow.Repository<PurchaseOrderDetail>().Query(tracking: true)
+                .Where(d => detailIds.Contains(d.PurchaseOrderDetailId))
+                .ToListAsync(ct);
+
+            foreach (var orderLine in orderLines)
+            {
+                if (!receivedByOrderLine.TryGetValue(orderLine.PurchaseOrderDetailId, out var received)
+                    || received <= 0) continue;
+
+                // Capped at the ordered quantity: CK_PurchaseOrderDetails_Qty
+                // rejects over-receipt, and an over-delivery is a conversation
+                // with the supplier rather than a reason to fail the posting.
+                orderLine.ReceivedQty = Math.Min(orderLine.OrderedQty, orderLine.ReceivedQty + received);
+            }
+
+            await RefreshOrderStatusesAsync(
+                orderLines.Select(l => l.PurchaseOrderId).Distinct().ToList(), ct);
+            return;
+        }
+
+        // Fallback for a receipt linked only at the header (no per-line PO
+        // detail ids): credit that one order by item match, as before.
         if (purchase.PurchaseOrderId is not { } orderId) return;
 
-        var orderLines = await _uow.Repository<PurchaseOrderDetail>().Query(tracking: true)
+        var headerLines = await _uow.Repository<PurchaseOrderDetail>().Query(tracking: true)
             .Where(d => d.PurchaseOrderId == orderId)
             .ToListAsync(ct);
 
-        foreach (var orderLine in orderLines)
+        foreach (var orderLine in headerLines)
         {
             var received = lines.Where(l => l.ItemId == orderLine.ItemId).Sum(l => l.Quantity);
             if (received <= 0) continue;
-
-            // Capped at the ordered quantity: CK_PurchaseOrderDetails_Qty
-            // rejects over-receipt, and an over-delivery is a conversation with
-            // the supplier rather than a reason to fail the posting.
             orderLine.ReceivedQty = Math.Min(orderLine.OrderedQty, orderLine.ReceivedQty + received);
         }
 
-        var order = await _uow.Repository<PurchaseOrder>()
-            .FirstOrDefaultAsync(o => o.PurchaseOrderId == orderId, tracking: true, ct);
+        await RefreshOrderStatusesAsync(new List<long> { orderId }, ct);
+    }
 
-        if (order is null) return;
+    /// <summary>
+    /// Recomputes each order's status (Received when every line is fully
+    /// received, else Partial) after its lines' ReceivedQty has been credited.
+    /// </summary>
+    private async Task RefreshOrderStatusesAsync(List<long> orderIds, CancellationToken ct)
+    {
+        if (orderIds.Count == 0) return;
 
-        order.Status = orderLines.All(l => l.ReceivedQty >= l.OrderedQty)
-            ? PurchaseOrderStatus.Received
-            : PurchaseOrderStatus.Partial;
+        var orders = await _uow.Repository<PurchaseOrder>().Query(tracking: true)
+            .Where(o => orderIds.Contains(o.PurchaseOrderId))
+            .ToListAsync(ct);
+
+        var allLines = await _uow.Repository<PurchaseOrderDetail>().Query(tracking: true)
+            .Where(d => orderIds.Contains(d.PurchaseOrderId))
+            .ToListAsync(ct);
+
+        foreach (var order in orders)
+        {
+            var orderLines = allLines.Where(l => l.PurchaseOrderId == order.PurchaseOrderId).ToList();
+            if (orderLines.Count == 0) continue;
+            order.Status = orderLines.All(l => l.ReceivedQty >= l.OrderedQty)
+                ? PurchaseOrderStatus.Received
+                : PurchaseOrderStatus.Partial;
+        }
     }
 
     private async Task GuardDuplicateSupplierBillAsync(
