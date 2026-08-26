@@ -23,7 +23,10 @@ INSERT INTO "ModuleMaster" ("ModuleID","ModuleName","ModuleDisplayName","ModuleH
 (20,'/accounts/customer-ledger','Customer Ledger','Accounts','Accounts',5,3,5,'BookOpen',false),
 (21,'/accounts/supplier-payment','Supplier Payment','Accounts','Accounts',5,2,5,'HandCoins',false),
 (22,'/accounts/supplier-ledger','Supplier Ledger','Accounts','Accounts',5,4,5,'BookOpen',false),
+(23,'/accounts/expenses','Expenses','Accounts','Accounts',5,5,5,'Receipt',false),
+(24,'/sales/returns','Sales Return','Trading','Trading',2,2,2,'Undo2',false),
 (1022,'/dashboard/sales','Sales Dashboard','Dashboard','Dashboard',1,1,1,'TrendingUp',false),
-(1023,'/dashboard/purchase','Purchase Dashboard','Dashboard','Dashboard',1,2,1,'PieChart',false)
+(1023,'/dashboard/purchase','Purchase Dashboard','Dashboard','Dashboard',1,2,1,'PieChart',false),
+(25,'/bulk-import','Bulk Import','Masters','Masters',4,20,4,'Upload',false)
 ON CONFLICT DO NOTHING;
 SELECT setval(pg_get_serial_sequence('"ModuleMaster"','ModuleID'), (SELECT max("ModuleID") FROM "ModuleMaster"), true);

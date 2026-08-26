@@ -20,6 +20,7 @@ public interface IItemService
     Task<ItemLookupDto?> FindByBarcodeAsync(string barcode, CancellationToken ct = default);
     Task<IReadOnlyList<ItemLookupDto>> SearchForBillingAsync(string? search, CancellationToken ct = default);
     Task<ItemDto> CreateAsync(SaveItemRequest request, CancellationToken ct = default);
+    Task<BulkImportResultDto> BulkImportAsync(IReadOnlyList<SaveItemRequest> rows, CancellationToken ct = default);
     Task<ItemDto> UpdateAsync(int id, SaveItemRequest request, CancellationToken ct = default);
     Task DeleteAsync(int id, CancellationToken ct = default);
 }
@@ -305,6 +306,49 @@ public class ItemService : IItemService
             await CreateGenericBatchAsync(item, ct);
 
         return await GetByIdAsync(item.ItemId, ct);
+    }
+
+    /// <summary>
+    /// Imports many items (from an Excel upload). Each row reuses CreateAsync so
+    /// it lands in the same tables (ItemMaster + ItemMasterDetails + generic
+    /// batch) with the same group code-series and validation. Because one item
+    /// spans several tables, each row runs in its own transaction — a partial
+    /// failure rolls the whole item back rather than leaving it half-written.
+    /// Rows are independent: valid ones save, the rest are reported with a reason.
+    /// </summary>
+    public async Task<BulkImportResultDto> BulkImportAsync(
+        IReadOnlyList<SaveItemRequest> rows, CancellationToken ct = default)
+    {
+        var result = new BulkImportResultDto();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var index = i;
+            try
+            {
+                await _uow.ExecuteInTransactionAsync(async token =>
+                {
+                    await CreateAsync(rows[index], token);
+                    return true;
+                }, ct);
+                result.Imported++;
+            }
+            catch (Exception ex)
+            {
+                result.Failed++;
+                result.Errors.Add(new BulkImportError
+                {
+                    Row = index + 1,
+                    Message = ex.InnerException?.Message ?? ex.Message,
+                });
+            }
+            finally
+            {
+                // Clear anything the rolled-back attempt left tracked so it does
+                // not carry into the next row.
+                _uow.ClearTracking();
+            }
+        }
+        return result;
     }
 
     public async Task<ItemDto> UpdateAsync(int id, SaveItemRequest request, CancellationToken ct = default)

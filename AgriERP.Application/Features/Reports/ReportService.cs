@@ -1,5 +1,6 @@
 using AgriERP.Application.Common.Extensions;
 using AgriERP.Application.Common.Interfaces;
+using AgriERP.Domain.Entities.Finance;
 using AgriERP.Domain.Entities.Masters;
 using AgriERP.Domain.Entities.Purchases;
 using AgriERP.Domain.Entities.Sales;
@@ -137,6 +138,42 @@ public class CompanyWiseStockDto
 
 /* ---------------------------- service ---------------------------- */
 
+public class CashBookRowDto
+{
+    public DateTime Date { get; set; }
+    public string VoucherNumber { get; set; } = string.Empty;
+    /// <summary>Sale / Receipt / Payment / Expense.</summary>
+    public string Type { get; set; } = string.Empty;
+    public string Particulars { get; set; } = string.Empty;
+    public decimal CashIn { get; set; }
+    public decimal CashOut { get; set; }
+    public decimal RunningBalance { get; set; }
+}
+
+/// <summary>Cash drawer for a period: opening + ins - outs = closing.</summary>
+public class CashBookDto
+{
+    public decimal OpeningBalance { get; set; }
+    public decimal TotalIn { get; set; }
+    public decimal TotalOut { get; set; }
+    public decimal ClosingBalance { get; set; }
+    public IReadOnlyList<CashBookRowDto> Rows { get; set; } = Array.Empty<CashBookRowDto>();
+}
+
+/// <summary>One customer's unpaid balance split into age buckets (days overdue).</summary>
+public class ReceivablesAgingRowDto
+{
+    public int CustomerId { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string? Village { get; set; }
+    public decimal Current { get; set; }      // 0-30 days
+    public decimal Days31To60 { get; set; }
+    public decimal Days61To90 { get; set; }
+    public decimal Days90Plus { get; set; }
+    public decimal Total { get; set; }
+    public int OldestDays { get; set; }
+}
+
 public interface IReportService
 {
     // inventory
@@ -157,6 +194,8 @@ public interface IReportService
     Task<IReadOnlyList<ProfitReportRowDto>> GetProfitReportAsync(DateRangeRequest range, CancellationToken ct = default);
     Task<IReadOnlyList<ItemProfitRowDto>> GetItemProfitAsync(DateRangeRequest range, int topCount, CancellationToken ct = default);
     Task<GstReturnDto> GetGstReturnAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<CashBookDto> GetCashBookAsync(DateRangeRequest range, CancellationToken ct = default);
+    Task<IReadOnlyList<ReceivablesAgingRowDto>> GetReceivablesAgingAsync(CancellationToken ct = default);
 }
 
 public class ReportService : IReportService
@@ -333,6 +372,169 @@ public class ReportService : IReportService
             })
             .OrderByDescending(r => r.TotalSales)
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<ReceivablesAgingRowDto>> GetReceivablesAgingAsync(
+        CancellationToken ct = default)
+    {
+        var today = _clock.UtcNow.Date;
+
+        // One row per still-unpaid posted invoice; BalanceAmount is authoritative.
+        var invoices = await _uow.Repository<Sale>().Query()
+            .Where(s => s.Status == DocumentStatus.Posted && s.CustomerId != null && s.BalanceAmount > 0)
+            .Select(s => new { CustomerId = s.CustomerId!.Value, s.InvoiceDate, s.DueDate, s.BalanceAmount })
+            .ToListAsync(ct);
+
+        if (invoices.Count == 0) return Array.Empty<ReceivablesAgingRowDto>();
+
+        var ids = invoices.Select(i => i.CustomerId).Distinct().ToList();
+        var names = await _uow.Repository<Customer>().Query()
+            .Where(c => ids.Contains(c.CustomerId))
+            .Select(c => new { c.CustomerId, c.CustomerName, c.Village })
+            .ToListAsync(ct);
+        var nameMap = names.ToDictionary(n => n.CustomerId);
+
+        return invoices
+            .GroupBy(i => i.CustomerId)
+            .Select(g =>
+            {
+                nameMap.TryGetValue(g.Key, out var c);
+                var row = new ReceivablesAgingRowDto
+                {
+                    CustomerId = g.Key,
+                    CustomerName = c?.CustomerName ?? $"#{g.Key}",
+                    Village = c?.Village,
+                };
+                foreach (var inv in g)
+                {
+                    // Age from the due date if the bill has one, else the invoice date.
+                    var age = (today - (inv.DueDate?.Date ?? inv.InvoiceDate.Date)).Days;
+                    if (age > row.OldestDays) row.OldestDays = age;
+                    if (age <= 30) row.Current += inv.BalanceAmount;
+                    else if (age <= 60) row.Days31To60 += inv.BalanceAmount;
+                    else if (age <= 90) row.Days61To90 += inv.BalanceAmount;
+                    else row.Days90Plus += inv.BalanceAmount;
+                }
+                row.Total = row.Current + row.Days31To60 + row.Days61To90 + row.Days90Plus;
+                return row;
+            })
+            .OrderByDescending(r => r.Total)
+            .ToList();
+    }
+
+    public async Task<CashBookDto> GetCashBookAsync(DateRangeRequest range, CancellationToken ct = default)
+    {
+        var from = range.FromDate.Date;
+        var to = range.ToDate.Date;
+
+        // "Cash" is a payment mode; its id is identity-generated, so resolve by code.
+        var cashModeId = await _uow.Repository<PaymentMode>().Query()
+            .Where(m => m.ModeCode == "CASH")
+            .Select(m => (int?)m.PaymentModeId)
+            .FirstOrDefaultAsync(ct);
+        if (cashModeId is null) return new CashBookDto();
+
+        var rows = new List<CashBookRowDto>();
+
+        // --- Cash receipts and payments (the Payments ledger) ---
+        var payments = await _uow.Repository<Payment>().Query()
+            .Where(p => p.PaymentModeId == cashModeId && p.Status == PaymentRecordStatus.Posted
+                     && p.PaymentDate >= from && p.PaymentDate <= to)
+            .Select(p => new
+            {
+                p.PaymentDate, p.VoucherNumber, p.PaymentType, p.Amount,
+                Party = p.Customer != null ? p.Customer.CustomerName
+                      : p.Supplier != null ? p.Supplier.SupplierName : ""
+            })
+            .ToListAsync(ct);
+        foreach (var p in payments)
+            rows.Add(new CashBookRowDto
+            {
+                Date = p.PaymentDate,
+                VoucherNumber = p.VoucherNumber,
+                Type = p.PaymentType == PaymentDirection.Receipt ? "Receipt" : "Payment",
+                Particulars = p.Party,
+                CashIn = p.PaymentType == PaymentDirection.Receipt ? p.Amount : 0m,
+                CashOut = p.PaymentType == PaymentDirection.Payment ? p.Amount : 0m
+            });
+
+        // --- Cash expenses ---
+        var expenses = await _uow.Repository<Expense>().Query()
+            .Where(e => e.PaymentModeId == cashModeId && e.Status == PaymentRecordStatus.Posted
+                     && e.ExpenseDate >= from && e.ExpenseDate <= to)
+            .Select(e => new { e.ExpenseDate, e.VoucherNumber, Category = e.ExpenseCategory!.CategoryName, e.TotalAmount })
+            .ToListAsync(ct);
+        foreach (var e in expenses)
+            rows.Add(new CashBookRowDto
+            {
+                Date = e.ExpenseDate, VoucherNumber = e.VoucherNumber, Type = "Expense",
+                Particulars = e.Category, CashOut = e.TotalAmount
+            });
+
+        // --- Cash collected at the counter. A sale's tender split names the mode;
+        // a plain cash sale is entered with no tender rows, so its ReceivedAmount
+        // is treated as the cash collected. ---
+        var salesInRange = await _uow.Repository<Sale>().Query()
+            .Where(s => s.Status == DocumentStatus.Posted && s.InvoiceDate >= from && s.InvoiceDate <= to)
+            .Select(s => new
+            {
+                s.InvoiceDate, s.InvoiceNumber, s.ReceivedAmount,
+                CustomerName = s.Customer != null ? s.Customer.CustomerName : "Walk-in / Cash",
+                Tenders = s.Payments.Select(sp => new { sp.PaymentModeId, sp.Amount }).ToList()
+            })
+            .ToListAsync(ct);
+        foreach (var s in salesInRange)
+        {
+            var cashIn = s.Tenders.Count > 0
+                ? s.Tenders.Where(tp => tp.PaymentModeId == cashModeId).Sum(tp => tp.Amount)
+                : s.ReceivedAmount;
+            if (cashIn > 0)
+                rows.Add(new CashBookRowDto
+                {
+                    Date = s.InvoiceDate, VoucherNumber = s.InvoiceNumber, Type = "Sale",
+                    Particulars = s.CustomerName, CashIn = cashIn
+                });
+        }
+
+        // --- Opening balance: net cash before the period (DB-side aggregates). ---
+        var openReceipts = await _uow.Repository<Payment>().Query()
+            .Where(p => p.PaymentModeId == cashModeId && p.Status == PaymentRecordStatus.Posted
+                     && p.PaymentType == PaymentDirection.Receipt && p.PaymentDate < from)
+            .SumAsync(p => (decimal?)p.Amount, ct) ?? 0m;
+        var openPayments = await _uow.Repository<Payment>().Query()
+            .Where(p => p.PaymentModeId == cashModeId && p.Status == PaymentRecordStatus.Posted
+                     && p.PaymentType == PaymentDirection.Payment && p.PaymentDate < from)
+            .SumAsync(p => (decimal?)p.Amount, ct) ?? 0m;
+        var openExpenses = await _uow.Repository<Expense>().Query()
+            .Where(e => e.PaymentModeId == cashModeId && e.Status == PaymentRecordStatus.Posted
+                     && e.ExpenseDate < from)
+            .SumAsync(e => (decimal?)e.TotalAmount, ct) ?? 0m;
+        var openSaleTenders = await _uow.Repository<Sale>().Query()
+            .Where(s => s.Status == DocumentStatus.Posted && s.InvoiceDate < from)
+            .SelectMany(s => s.Payments.Where(sp => sp.PaymentModeId == cashModeId))
+            .SumAsync(sp => (decimal?)sp.Amount, ct) ?? 0m;
+        var openPlainSales = await _uow.Repository<Sale>().Query()
+            .Where(s => s.Status == DocumentStatus.Posted && s.InvoiceDate < from
+                     && s.ReceivedAmount > 0 && !s.Payments.Any())
+            .SumAsync(s => (decimal?)s.ReceivedAmount, ct) ?? 0m;
+        var opening = openReceipts + openSaleTenders + openPlainSales - openPayments - openExpenses;
+
+        var ordered = rows.OrderBy(r => r.Date).ThenBy(r => r.VoucherNumber).ToList();
+        var run = opening;
+        foreach (var r in ordered)
+        {
+            run += r.CashIn - r.CashOut;
+            r.RunningBalance = run;
+        }
+
+        return new CashBookDto
+        {
+            OpeningBalance = opening,
+            TotalIn = ordered.Sum(r => r.CashIn),
+            TotalOut = ordered.Sum(r => r.CashOut),
+            ClosingBalance = run,
+            Rows = ordered
+        };
     }
 
     public async Task<IReadOnlyList<PurchaseReportRowDto>> GetPurchaseReportAsync(

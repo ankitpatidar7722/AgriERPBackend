@@ -85,6 +85,18 @@ public class ReportsController : BaseApiController
     public async Task<IActionResult> ProfitReport([FromQuery] DateRangeRequest range, CancellationToken ct)
         => Success(await _reports.GetProfitReportAsync(range, ct));
 
+    /// <summary>Cash drawer for a period - cash in/out with a running balance.</summary>
+    [HasPermission(Permissions.Report.Profit)]
+    [HttpGet("cash-book")]
+    public async Task<IActionResult> CashBook([FromQuery] DateRangeRequest range, CancellationToken ct)
+        => Success(await _reports.GetCashBookAsync(range, ct));
+
+    /// <summary>Customer receivables bucketed by age (0-30 / 31-60 / 61-90 / 90+ days).</summary>
+    [HasPermission(Permissions.Report.Party)]
+    [HttpGet("receivables-aging")]
+    public async Task<IActionResult> ReceivablesAging(CancellationToken ct)
+        => Success(await _reports.GetReceivablesAgingAsync(ct));
+
     [HasPermission(Permissions.Report.Profit)]
     [HttpGet("profit/by-item")]
     public async Task<IActionResult> ItemProfit(

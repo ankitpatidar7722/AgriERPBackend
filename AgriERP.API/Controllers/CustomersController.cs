@@ -77,6 +77,12 @@ public class CustomersController : BaseApiController
     public async Task<IActionResult> Create(SaveCustomerRequest request, CancellationToken ct)
         => SuccessCreated(await _customers.CreateAsync(request, ct), "Customer created.");
 
+    /// <summary>Bulk-imports customers from an Excel upload (parsed client-side into rows).</summary>
+    [HasPermission(Permissions.Customer.Create)]
+    [HttpPost("bulk-import")]
+    public async Task<IActionResult> BulkImport(List<SaveCustomerRequest> rows, CancellationToken ct)
+        => Success(await _customers.BulkImportAsync(rows, ct), "Bulk import finished.");
+
     [HasPermission(Permissions.Customer.Edit)]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, SaveCustomerRequest request, CancellationToken ct)

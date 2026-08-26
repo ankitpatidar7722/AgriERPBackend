@@ -40,6 +40,11 @@ public class LookupsController : BaseApiController
     public async Task<IActionResult> GetPaymentModes(CancellationToken ct)
         => Success(await _lookups.GetPaymentModesAsync(ct));
 
+    /// <summary>Expense heads (Shop Rent, Electricity, Salary, ...) for the expense form.</summary>
+    [HttpGet("expense-categories")]
+    public async Task<IActionResult> GetExpenseCategories(CancellationToken ct)
+        => Success(await _lookups.GetExpenseCategoriesAsync(ct));
+
     /// <summary>
     /// Everything the item form needs in one round trip, instead of six
     /// parallel calls the moment the page opens.

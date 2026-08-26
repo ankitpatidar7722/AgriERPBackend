@@ -2,6 +2,7 @@ using AgriERP.Application.Common.Interfaces;
 using AgriERP.Application.Common.Services;
 using AgriERP.Application.Features.Auth;
 using AgriERP.Application.Features.Masters;
+using AgriERP.Application.Features.Expenses;
 using AgriERP.Application.Features.Modules;
 using AgriERP.Application.Features.Payments;
 using AgriERP.Application.Features.Items;
@@ -62,6 +63,7 @@ public static class DependencyInjection
         services.AddScoped<IPurchaseService, PurchaseService>();
         services.AddScoped<ISalesService, SalesService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IExpenseService, ExpenseService>();
         services.AddScoped<IReportService, ReportService>();
 
         return services;

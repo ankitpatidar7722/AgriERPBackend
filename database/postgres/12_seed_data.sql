@@ -305,6 +305,83 @@ ON CONFLICT DO NOTHING;
 SELECT setval(pg_get_serial_sequence('"ItemSubGroupMaster"','ItemSubGroupId'),
               (SELECT max("ItemSubGroupId") FROM "ItemSubGroupMaster"), true);
 
+/*-------------------------- ItemGroupFieldMaster --------------------------
+  The dynamic per-group form field definitions (parallels scripts/15_ItemGroups
+  section 9). Without these the item create/edit form has no fields on Postgres.
+  ItemGroupFieldId is identity (auto), so no setval is needed. Idempotent via a
+  per-row NOT EXISTS guard (the table has no unique key on group+field). */
+
+-- Shared fields: the columns billing and stock depend on — one copy per group.
+INSERT INTO "ItemGroupFieldMaster"
+    ("ItemGroupId","FieldName","FieldDisplayName","FieldType","IsStoredOnItem","IsRequired",
+     "DisplayOrder","ColumnSpan","SectionName","LookupSource","HelpText","UnitLabel","MinValue","MaxValue")
+SELECT g."ItemGroupId",
+       f."FieldName", f."FieldDisplayName", f."FieldType", f."IsStoredOnItem", f."IsRequired",
+       f."DisplayOrder", f."ColumnSpan", f."SectionName", f."LookupSource", f."HelpText", f."UnitLabel", f."MinValue", f."MaxValue"
+FROM "ItemGroupMaster" g
+CROSS JOIN (VALUES
+    ('ItemName',        'Item name',       'text',     true,  true,  10,  1, 'Basic details', NULL::varchar, NULL::varchar,                                    NULL::varchar, NULL::numeric, NULL::numeric),
+    ('ShortName',       'Short name',      'text',     true,  false, 20,  1, 'Basic details', NULL,          'Printed on the invoice line.',                   NULL, NULL, NULL),
+    ('ItemSubGroupId',  'Sub group',       'select',   true,  true,  30,  1, 'Basic details', 'subgroups',   NULL,                                             NULL, NULL, NULL),
+    ('CompanyId',       'Company',         'select',   true,  false, 40,  1, 'Basic details', 'companies',   NULL,                                             NULL, NULL, NULL),
+    ('Brand',           'Brand',           'text',     true,  false, 50,  1, 'Basic details', NULL,          NULL,                                             NULL, NULL, NULL),
+    ('PackingSize',     'Pack size',       'decimal',  true,  false, 60,  1, 'Basic details', NULL,          NULL,                                             NULL, 0,    NULL),
+    ('PackingUnitId',   'Pack unit',       'select',   true,  false, 70,  1, 'Basic details', 'units',       NULL,                                             NULL, NULL, NULL),
+    ('UnitId',          'Selling unit',    'select',   true,  true,  80,  1, 'Basic details', 'units',       NULL,                                             NULL, NULL, NULL),
+    ('Barcode',         'Barcode',         'text',     true,  false, 90,  1, 'Basic details', NULL,          NULL,                                             NULL, NULL, NULL),
+    ('RackNumber',      'Rack',            'text',     true,  false, 100, 1, 'Basic details', NULL,          NULL,                                             NULL, NULL, NULL),
+    ('Description',     'Description',     'textarea', true,  false, 110, 4, 'Basic details', NULL,          NULL,                                             NULL, NULL, NULL),
+    ('HsnId',           'HSN code',        'select',   true,  false, 200, 1, 'Pricing & tax', 'hsncodes',    NULL,                                             NULL, NULL, NULL),
+    ('GstSlabId',       'GST rate',        'select',   true,  true,  210, 1, 'Pricing & tax', 'gstslabs',    NULL,                                             NULL, NULL, NULL),
+    ('Mrp',             'MRP',             'decimal',  true,  false, 220, 1, 'Pricing & tax', NULL,          NULL,                                             NULL, 0,    NULL),
+    ('PurchaseRate',    'Purchase rate',   'decimal',  true,  false, 230, 1, 'Pricing & tax', NULL,          'Updated automatically when a purchase posts.',   NULL, 0,    NULL),
+    ('SellingRate',     'Selling rate',    'decimal',  true,  false, 240, 1, 'Pricing & tax', NULL,          NULL,                                             NULL, 0,    NULL),
+    ('MinSellingRate',  'Minimum rate',    'decimal',  true,  false, 250, 1, 'Pricing & tax', NULL,          'Going below needs a permission.',                NULL, 0,    NULL),
+    ('WholesaleRate',   'Wholesale rate',  'decimal',  true,  false, 260, 1, 'Pricing & tax', NULL,          NULL,                                             NULL, 0,    NULL),
+    ('DealerRate',      'Dealer rate',     'decimal',  true,  false, 270, 1, 'Pricing & tax', NULL,          NULL,                                             NULL, 0,    NULL),
+    ('MinStockLevel',   'Minimum stock',   'decimal',  true,  false, 300, 1, 'Stock',         NULL,          'Triggers the low-stock alert.',                  NULL, 0,    NULL),
+    ('MaxStockLevel',   'Maximum stock',   'decimal',  true,  false, 310, 1, 'Stock',         NULL,          NULL,                                             NULL, 0,    NULL),
+    ('ReorderLevel',    'Reorder level',   'decimal',  true,  false, 320, 1, 'Stock',         NULL,          NULL,                                             NULL, 0,    NULL),
+    ('IsBatchTracked',  'Batch tracking',  'checkbox', true,  false, 330, 1, 'Stock',         NULL,          NULL,                                             NULL, NULL, NULL),
+    ('IsExpiryTracked', 'Expiry tracking', 'checkbox', true,  false, 340, 1, 'Stock',         NULL,          'Drives FEFO picking.',                           NULL, NULL, NULL),
+    ('IsActive',        'Active',          'checkbox', true,  false, 350, 1, 'Stock',         NULL,          NULL,                                             NULL, NULL, NULL)
+) AS f("FieldName","FieldDisplayName","FieldType","IsStoredOnItem","IsRequired","DisplayOrder","ColumnSpan","SectionName","LookupSource","HelpText","UnitLabel","MinValue","MaxValue")
+WHERE g."IsDeleted" = false
+  AND NOT EXISTS (SELECT 1 FROM "ItemGroupFieldMaster" x
+                  WHERE x."ItemGroupId" = g."ItemGroupId" AND x."FieldName" = f."FieldName");
+
+-- Group-specific extras: what makes each group different.
+INSERT INTO "ItemGroupFieldMaster"
+    ("ItemGroupId","FieldName","FieldDisplayName","FieldType","IsStoredOnItem","IsRequired",
+     "DisplayOrder","ColumnSpan","SectionName","LookupSource","HelpText","UnitLabel","MinValue","MaxValue")
+SELECT g."ItemGroupId",
+       f."FieldName", f."FieldDisplayName", f."FieldType", f."IsStoredOnItem", f."IsRequired",
+       f."DisplayOrder", f."ColumnSpan", f."SectionName", f."LookupSource", f."HelpText", f."UnitLabel", f."MinValue", f."MaxValue"
+FROM (VALUES
+    -- Product Master: a pesticide is a regulated chemical.
+    ('PRDGRP','TechnicalName', 'Technical name',        'text',     true,  true,  120, 2, 'Basic details', NULL::varchar, 'Active ingredient, e.g. Imidacloprid 17.8% SL.',  NULL::varchar, NULL::numeric, NULL::numeric),
+    ('PRDGRP','LicenceNumber', 'CIB licence no.',       'text',     true,  true,  130, 1, 'Basic details', NULL,          'Shown to the inspector.',                         NULL, NULL, NULL),
+    ('PRDGRP','AntidoteInfo',  'Antidote / first aid',  'textarea', false, false, 140, 4, 'Safety',        NULL,          'Printed on the counter copy for poisoning cases.', NULL, NULL, NULL),
+    ('PRDGRP','WaitingPeriod', 'Pre-harvest interval',  'number',   false, false, 150, 1, 'Safety',        NULL,          'Days between spraying and harvest.',              'days', 0, 365),
+    -- Fertilizers Master: bought and sold on nutrient content.
+    ('FRTGRP','NutrientContent','N-P-K',                'text',     false, true,  120, 1, 'Composition',   NULL,          'For example 46-0-0 for urea.',                    NULL, NULL, NULL),
+    ('FRTGRP','FertilizerForm', 'Form',                 'select',   false, false, 130, 1, 'Composition',   'fertilizerform', NULL,                                  NULL, NULL, NULL),
+    ('FRTGRP','SubsidyScheme',  'Subsidy scheme',       'text',     false, false, 140, 1, 'Composition',   NULL,          'Blank when sold at open market rate.',            NULL, NULL, NULL),
+    ('FRTGRP','TechnicalName',  'Chemical name',        'text',     true,  false, 150, 1, 'Composition',   NULL,          NULL,                                              NULL, NULL, NULL),
+    -- Seed Master: germination and lot are the legal minimum on a seed bag.
+    ('SEDGRP','SeedVariety',    'Variety',              'text',     false, true,  120, 1, 'Seed details',  NULL,          NULL,                                              NULL, NULL, NULL),
+    ('SEDGRP','GerminationPct', 'Germination',          'decimal',  false, true,  130, 1, 'Seed details',  NULL,          'Minimum on the bag label.',                       '%', 0, 100),
+    ('SEDGRP','SeedLotNumber',  'Lot number',           'text',     false, true,  140, 1, 'Seed details',  NULL,          NULL,                                              NULL, NULL, NULL),
+    ('SEDGRP','SeedTreatment',  'Treatment',            'text',     false, false, 150, 1, 'Seed details',  NULL,          'Fungicide the seed is dressed with.',             NULL, NULL, NULL),
+    ('SEDGRP','SowingSeason',   'Season',               'select',   false, false, 160, 1, 'Seed details',  'season',      NULL,                                              NULL, NULL, NULL),
+    -- Other Master: equipment is a durable, not an input.
+    ('OTHGRP','WarrantyMonths', 'Warranty',             'number',   false, false, 120, 1, 'Equipment',     NULL,          NULL,                                              'months', 0, 240),
+    ('OTHGRP','ModelNumber',    'Model number',         'text',     false, false, 130, 1, 'Equipment',     NULL,          NULL,                                              NULL, NULL, NULL)
+) AS f("GroupCode","FieldName","FieldDisplayName","FieldType","IsStoredOnItem","IsRequired","DisplayOrder","ColumnSpan","SectionName","LookupSource","HelpText","UnitLabel","MinValue","MaxValue")
+JOIN "ItemGroupMaster" g ON g."ItemGroupCode" = f."GroupCode"
+WHERE NOT EXISTS (SELECT 1 FROM "ItemGroupFieldMaster" x
+                  WHERE x."ItemGroupId" = g."ItemGroupId" AND x."FieldName" = f."FieldName");
+
 /*------------------------------ FinancialYears ----------------------------
   Derived from today so the script never goes stale. FY runs 1 Apr - 31 Mar;
   the year containing today is active. */

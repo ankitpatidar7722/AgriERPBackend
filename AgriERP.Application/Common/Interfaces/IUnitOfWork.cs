@@ -14,6 +14,13 @@ public interface IUnitOfWork
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Detaches every tracked entity. Bulk operations that call an entity's
+    /// CreateAsync once per row use this: if one row's SaveChanges throws, its
+    /// still-Added entity must not be carried into the next row's save.
+    /// </summary>
+    void ClearTracking();
+
     Task<IAppTransaction> BeginTransactionAsync(CancellationToken ct = default);
 
     /// <summary>

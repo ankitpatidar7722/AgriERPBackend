@@ -53,6 +53,7 @@ public class ModuleService : IModuleService
             ["/dashboard/sales"]    = [Permissions.Dashboard.View],
             ["/dashboard/purchase"] = [Permissions.Dashboard.View],
             ["/sales"]      = [Permissions.Sales.View],
+            ["/sales/returns"] = [Permissions.Sales.View],
             ["/purchases"]  = [Permissions.Purchase.View],
             ["/payments"]   = [Permissions.Payment.View],
             ["/stock"]      = [Permissions.Stock.View],
@@ -71,7 +72,8 @@ public class ModuleService : IModuleService
             ["/customers"]  = [Permissions.Customer.View],
             // Units are maintained under the item permissions - a unit only
             // exists to serve items, matching UnitsController.
-            ["/units"]      = [Permissions.Item.View]
+            ["/units"]      = [Permissions.Item.View],
+            ["/accounts/expenses"] = [Permissions.Payment.ExpenseView]
         };
 
     public async Task<IReadOnlyList<SidebarGroupDto>> GetSidebarAsync(CancellationToken ct = default)

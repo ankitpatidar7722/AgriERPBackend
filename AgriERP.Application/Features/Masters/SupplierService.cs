@@ -20,6 +20,7 @@ public interface ISupplierService
     Task<SupplierDto> GetByIdAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<LookupDto>> GetLookupAsync(CancellationToken ct = default);
     Task<SupplierDto> CreateAsync(SaveSupplierRequest request, CancellationToken ct = default);
+    Task<BulkImportResultDto> BulkImportAsync(IReadOnlyList<SaveSupplierRequest> rows, CancellationToken ct = default);
     Task<SupplierDto> UpdateAsync(int id, SaveSupplierRequest request, CancellationToken ct = default);
     Task DeleteAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<SupplierOutstandingView>> GetOutstandingAsync(CancellationToken ct = default);
@@ -181,6 +182,40 @@ public class SupplierService : ISupplierService
         await _uow.SaveChangesAsync(ct);
 
         return await GetByIdAsync(supplier.SupplierId, ct);
+    }
+
+    /// <summary>
+    /// Imports many suppliers (from an Excel upload). Each row reuses CreateAsync
+    /// so it lands in the same table with the same code-series, validation and
+    /// duplicate checks. Rows are independent: valid ones save, the rest are
+    /// reported with a reason (partial import).
+    /// </summary>
+    public async Task<BulkImportResultDto> BulkImportAsync(
+        IReadOnlyList<SaveSupplierRequest> rows, CancellationToken ct = default)
+    {
+        var result = new BulkImportResultDto();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            try
+            {
+                await CreateAsync(rows[i], ct);
+                result.Imported++;
+            }
+            catch (Exception ex)
+            {
+                result.Failed++;
+                result.Errors.Add(new BulkImportError
+                {
+                    Row = i + 1,
+                    Message = ex.InnerException?.Message ?? ex.Message,
+                });
+            }
+            finally
+            {
+                _uow.ClearTracking();
+            }
+        }
+        return result;
     }
 
     public async Task<SupplierDto> UpdateAsync(int id, SaveSupplierRequest request, CancellationToken ct = default)

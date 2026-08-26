@@ -23,6 +23,7 @@ public interface ICustomerService
     Task<CustomerDto?> FindByMobileAsync(string mobile, CancellationToken ct = default);
     Task<IReadOnlyList<string>> GetVillagesAsync(CancellationToken ct = default);
     Task<CustomerDto> CreateAsync(SaveCustomerRequest request, CancellationToken ct = default);
+    Task<BulkImportResultDto> BulkImportAsync(IReadOnlyList<SaveCustomerRequest> rows, CancellationToken ct = default);
     Task<CustomerDto> UpdateAsync(int id, SaveCustomerRequest request, CancellationToken ct = default);
     Task DeleteAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<CustomerOutstandingView>> GetOutstandingAsync(CancellationToken ct = default);
@@ -305,6 +306,42 @@ public class CustomerService : ICustomerService
         await _uow.SaveChangesAsync(ct);
 
         return await GetByIdAsync(customer.CustomerId, ct);
+    }
+
+    /// <summary>
+    /// Imports many customers (from an Excel upload). Each row goes through the
+    /// same CreateAsync as a manual add, so it lands in the same table with the
+    /// same code-series, validation and duplicate checks. Rows are independent:
+    /// valid ones are saved and the rest reported with a reason (partial import).
+    /// </summary>
+    public async Task<BulkImportResultDto> BulkImportAsync(
+        IReadOnlyList<SaveCustomerRequest> rows, CancellationToken ct = default)
+    {
+        var result = new BulkImportResultDto();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            try
+            {
+                await CreateAsync(rows[i], ct);
+                result.Imported++;
+            }
+            catch (Exception ex)
+            {
+                result.Failed++;
+                result.Errors.Add(new BulkImportError
+                {
+                    Row = i + 1,
+                    Message = ex.InnerException?.Message ?? ex.Message,
+                });
+            }
+            finally
+            {
+                // A failed SaveChanges leaves the row's entity tracked as Added;
+                // clear it so it does not re-fail every subsequent row.
+                _uow.ClearTracking();
+            }
+        }
+        return result;
     }
 
     public async Task<CustomerDto> UpdateAsync(int id, SaveCustomerRequest request, CancellationToken ct = default)

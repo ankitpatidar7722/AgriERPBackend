@@ -21,6 +21,7 @@ public interface ILookupService
     Task<IReadOnlyList<LookupDto>> GetHsnCodesAsync(CancellationToken ct = default);
     Task<IReadOnlyList<LookupDto>> GetStorageLocationsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<PaymentModeLookupDto>> GetPaymentModesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<LookupDto>> GetExpenseCategoriesAsync(CancellationToken ct = default);
     Task<FormLookupsDto> GetItemFormLookupsAsync(CancellationToken ct = default);
 }
 
@@ -124,6 +125,18 @@ public class LookupService : ILookupService
                 RequiresReference = m.RequiresReference,
                 IsBankMode        = m.IsBankMode,
                 IsActive          = m.IsActive
+            })
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<LookupDto>> GetExpenseCategoriesAsync(CancellationToken ct = default)
+        => await _uow.Repository<ExpenseCategory>().Query()
+            .Where(c => c.IsActive && !c.IsDeleted)
+            .OrderBy(c => c.CategoryName)
+            .Select(c => new LookupDto
+            {
+                Id   = c.ExpenseCategoryId,
+                Code = c.CategoryCode,
+                Name = c.CategoryName
             })
             .ToListAsync(ct);
 

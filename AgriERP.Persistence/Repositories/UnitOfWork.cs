@@ -21,6 +21,8 @@ public class UnitOfWork : IUnitOfWork
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => _context.SaveChangesAsync(ct);
 
+    public void ClearTracking() => _context.ChangeTracker.Clear();
+
     public async Task<IAppTransaction> BeginTransactionAsync(CancellationToken ct = default)
         => new EfTransaction(await _context.Database.BeginTransactionAsync(ct));
 

@@ -49,6 +49,12 @@ public class ItemsController : BaseApiController
     public async Task<IActionResult> Create(SaveItemRequest request, CancellationToken ct)
         => SuccessCreated(await _items.CreateAsync(request, ct), "Item created.");
 
+    /// <summary>Bulk-imports items from an Excel upload (parsed client-side into full item rows).</summary>
+    [HasPermission(Permissions.Item.Create)]
+    [HttpPost("bulk-import")]
+    public async Task<IActionResult> BulkImport(List<SaveItemRequest> rows, CancellationToken ct)
+        => Success(await _items.BulkImportAsync(rows, ct), "Bulk import finished.");
+
     [HasPermission(Permissions.Item.Edit)]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, SaveItemRequest request, CancellationToken ct)
