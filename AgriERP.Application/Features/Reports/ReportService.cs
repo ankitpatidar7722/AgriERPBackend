@@ -174,6 +174,33 @@ public class ReceivablesAgingRowDto
     public int OldestDays { get; set; }
 }
 
+/// <summary>
+/// One movement of a regulated input (pesticide/seed/fertilizer) for the
+/// agriculture-department inspection register: the date, who it came from or
+/// went to, which batch, and how much went in or out.
+/// </summary>
+public class ComplianceRegisterRowDto
+{
+    public DateTime Date { get; set; }
+    public string Direction { get; set; } = string.Empty;     // Inward / Outward
+    public string VoucherType { get; set; } = string.Empty;   // Purchase GRN / Sale
+    public string VoucherNumber { get; set; } = string.Empty;
+    public string? SupplierInvoiceNumber { get; set; }
+    public string PartyName { get; set; } = string.Empty;
+    public string? PartyGst { get; set; }
+    public int ItemId { get; set; }
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public string ItemGroupCode { get; set; } = string.Empty;
+    public string ItemGroupName { get; set; } = string.Empty;
+    public string? BatchNumber { get; set; }
+    public DateTime? ManufacturingDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public decimal InwardQty { get; set; }
+    public decimal OutwardQty { get; set; }
+    public string? UnitCode { get; set; }
+}
+
 public interface IReportService
 {
     // inventory
@@ -196,6 +223,10 @@ public interface IReportService
     Task<GstReturnDto> GetGstReturnAsync(DateRangeRequest range, CancellationToken ct = default);
     Task<CashBookDto> GetCashBookAsync(DateRangeRequest range, CancellationToken ct = default);
     Task<IReadOnlyList<ReceivablesAgingRowDto>> GetReceivablesAgingAsync(CancellationToken ct = default);
+
+    // compliance
+    Task<IReadOnlyList<ComplianceRegisterRowDto>> GetComplianceRegisterAsync(
+        DateRangeRequest range, string? groupCode, string? direction, CancellationToken ct = default);
 }
 
 public class ReportService : IReportService
@@ -371,6 +402,99 @@ public class ReportService : IReportService
                 };
             })
             .OrderByDescending(r => r.TotalSales)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Inward (GRN) and outward (sale) movements of regulated inputs for the
+    /// agriculture-department inspection register. Posted documents only; batch
+    /// and party are carried on each line. <paramref name="groupCode"/> limits to
+    /// one category (PRDGRP/SEDGRP/FRTGRP); null means all three regulated groups.
+    /// <paramref name="direction"/> ("Inward"/"Outward") limits the side; null is both.
+    /// </summary>
+    public async Task<IReadOnlyList<ComplianceRegisterRowDto>> GetComplianceRegisterAsync(
+        DateRangeRequest range, string? groupCode, string? direction, CancellationToken ct = default)
+    {
+        var from = range.FromDate.Date;
+        var to = range.ToDate.Date;
+        var wantGroup = string.IsNullOrWhiteSpace(groupCode) ? null : groupCode.Trim().ToUpperInvariant();
+        string[] regulated = { "PRDGRP", "SEDGRP", "FRTGRP" };
+
+        var wantInward = !string.Equals(direction, "Outward", StringComparison.OrdinalIgnoreCase);
+        var wantOutward = !string.Equals(direction, "Inward", StringComparison.OrdinalIgnoreCase);
+
+        var rows = new List<ComplianceRegisterRowDto>();
+
+        if (wantInward)
+        {
+            var q = _uow.Repository<PurchaseDetail>().Query()
+                .Where(d => d.Purchase!.Status == DocumentStatus.Posted
+                         && d.Purchase.PurchaseDate >= from && d.Purchase.PurchaseDate <= to);
+            q = wantGroup != null
+                ? q.Where(d => d.Item!.ItemGroup!.ItemGroupCode == wantGroup)
+                : q.Where(d => regulated.Contains(d.Item!.ItemGroup!.ItemGroupCode));
+
+            rows.AddRange(await q.Select(d => new ComplianceRegisterRowDto
+            {
+                Date = d.Purchase!.PurchaseDate,
+                Direction = "Inward",
+                VoucherType = "Purchase GRN",
+                VoucherNumber = d.Purchase.PurchaseNumber,
+                SupplierInvoiceNumber = d.Purchase.SupplierInvoiceNumber,
+                PartyName = d.Purchase.Supplier != null ? d.Purchase.Supplier.SupplierName : "",
+                PartyGst = d.Purchase.Supplier != null ? d.Purchase.Supplier.GstNumber : null,
+                ItemId = d.ItemId,
+                ItemCode = d.Item!.ItemCode,
+                ItemName = d.Item.ItemName,
+                ItemGroupCode = d.Item.ItemGroup!.ItemGroupCode,
+                ItemGroupName = d.Item.ItemGroup.ItemGroupName,
+                BatchNumber = d.BatchNumber,
+                ManufacturingDate = d.ManufacturingDate,
+                ExpiryDate = d.ExpiryDate,
+                InwardQty = d.Quantity + d.FreeQuantity,
+                OutwardQty = 0m,
+                UnitCode = d.Unit != null ? d.Unit.UnitCode : null
+            }).ToListAsync(ct));
+        }
+
+        if (wantOutward)
+        {
+            var q = _uow.Repository<SalesDetail>().Query()
+                .Where(d => d.Sale!.Status == DocumentStatus.Posted
+                         && d.Sale.InvoiceDate >= from && d.Sale.InvoiceDate <= to);
+            q = wantGroup != null
+                ? q.Where(d => d.Item!.ItemGroup!.ItemGroupCode == wantGroup)
+                : q.Where(d => regulated.Contains(d.Item!.ItemGroup!.ItemGroupCode));
+
+            rows.AddRange(await q.Select(d => new ComplianceRegisterRowDto
+            {
+                Date = d.Sale!.InvoiceDate,
+                Direction = "Outward",
+                VoucherType = "Sale",
+                VoucherNumber = d.Sale.InvoiceNumber,
+                SupplierInvoiceNumber = null,
+                PartyName = d.Sale.Customer != null
+                    ? d.Sale.Customer.CustomerName
+                    : (d.Sale.WalkInCustomerName ?? "Cash Customer"),
+                PartyGst = d.Sale.Customer != null ? d.Sale.Customer.GstNumber : null,
+                ItemId = d.ItemId,
+                ItemCode = d.Item!.ItemCode,
+                ItemName = d.Item.ItemName,
+                ItemGroupCode = d.Item.ItemGroup!.ItemGroupCode,
+                ItemGroupName = d.Item.ItemGroup.ItemGroupName,
+                BatchNumber = d.BatchNumber,
+                ManufacturingDate = null,
+                ExpiryDate = d.ExpiryDate,
+                InwardQty = 0m,
+                OutwardQty = d.Quantity + d.FreeQuantity,
+                UnitCode = d.Unit != null ? d.Unit.UnitCode : null
+            }).ToListAsync(ct));
+        }
+
+        return rows
+            .OrderBy(r => r.Date)
+            .ThenBy(r => r.Direction)
+            .ThenBy(r => r.VoucherNumber)
             .ToList();
     }
 

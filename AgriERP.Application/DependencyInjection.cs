@@ -6,9 +6,11 @@ using AgriERP.Application.Features.Expenses;
 using AgriERP.Application.Features.Modules;
 using AgriERP.Application.Features.Payments;
 using AgriERP.Application.Features.Items;
+using AgriERP.Application.Features.Market;
 using AgriERP.Application.Features.Purchases;
 using AgriERP.Application.Features.Reports;
 using AgriERP.Application.Features.Sales;
+using AgriERP.Application.Features.Settings;
 using AgriERP.Application.Features.Stock;
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
@@ -50,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<IItemSubGroupService, ItemSubGroupService>();
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<IShopService, ShopService>();
+        services.AddScoped<ICompanyProfileService, CompanyProfileService>();
         services.AddScoped<IWarehouseService, WarehouseService>();
         services.AddScoped<ISupplierService, SupplierService>();
         services.AddScoped<ICustomerService, CustomerService>();
@@ -65,6 +68,7 @@ public static class DependencyInjection
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IExpenseService, ExpenseService>();
         services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<IMarketPriceService, MarketPriceService>();
 
         return services;
     }

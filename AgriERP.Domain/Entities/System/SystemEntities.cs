@@ -44,6 +44,10 @@ public class CompanyProfile : IHasRowVersion
     public string? InvoiceTerms { get; set; }
     public string? InvoiceFooterNote { get; set; }
 
+    /// <summary>Free data.gov.in (Agmarknet) API key for the mandi-price widget.
+    /// Server-side only; never serialized to the client.</summary>
+    public string? DataGovInApiKey { get; set; }
+
     public DateTime? UpdatedAt { get; set; }
     public int? UpdatedBy { get; set; }
     public byte[]? RowVersion { get; set; }

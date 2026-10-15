@@ -19,6 +19,7 @@ public interface IItemService
     Task<ItemDto> GetByIdAsync(int id, CancellationToken ct = default);
     Task<ItemLookupDto?> FindByBarcodeAsync(string barcode, CancellationToken ct = default);
     Task<IReadOnlyList<ItemLookupDto>> SearchForBillingAsync(string? search, CancellationToken ct = default);
+    Task<IReadOnlyList<ItemLookupDto>> GetAllForBillingAsync(CancellationToken ct = default);
     Task<ItemDto> CreateAsync(SaveItemRequest request, CancellationToken ct = default);
     Task<BulkImportResultDto> BulkImportAsync(IReadOnlyList<SaveItemRequest> rows, CancellationToken ct = default);
     Task<ItemDto> UpdateAsync(int id, SaveItemRequest request, CancellationToken ct = default);
@@ -278,6 +279,16 @@ public class ItemService : IItemService
             .Select(BillingProjection())
             .ToListAsync(ct);
     }
+
+    /// <summary>
+    /// Every active item in the billing shape (rates, GST, unit, stock) with no
+    /// cap - the client caches this for offline billing when there is no network.
+    /// </summary>
+    public async Task<IReadOnlyList<ItemLookupDto>> GetAllForBillingAsync(CancellationToken ct = default)
+        => await BillingLookupQuery()
+            .OrderBy(x => x.Item.ItemName)
+            .Select(BillingProjection())
+            .ToListAsync(ct);
 
     public async Task<ItemDto> CreateAsync(SaveItemRequest request, CancellationToken ct = default)
     {

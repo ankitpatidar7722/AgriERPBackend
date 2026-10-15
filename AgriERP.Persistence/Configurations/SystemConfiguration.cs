@@ -41,6 +41,7 @@ public class CompanyProfileConfiguration : IEntityTypeConfiguration<CompanyProfi
         b.Property(x => x.LogoPath).HasMaxLength(300);
         b.Property(x => x.InvoiceTerms).HasMaxLength(1000);
         b.Property(x => x.InvoiceFooterNote).HasMaxLength(500);
+        b.Property(x => x.DataGovInApiKey).HasMaxLength(200);
         b.Property(x => x.UpdatedAt).AsNullableTimestamp();
         b.HasRowVersionConcurrency();
 

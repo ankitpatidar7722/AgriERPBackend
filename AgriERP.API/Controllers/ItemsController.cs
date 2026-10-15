@@ -27,6 +27,12 @@ public class ItemsController : BaseApiController
     public async Task<IActionResult> SearchForBilling([FromQuery] string? search, CancellationToken ct)
         => Success(await _items.SearchForBillingAsync(search, ct));
 
+    /// <summary>Every active item in the billing shape - for the offline billing cache.</summary>
+    [HasPermission(Permissions.Item.View)]
+    [HttpGet("billing-all")]
+    public async Task<IActionResult> AllForBilling(CancellationToken ct)
+        => Success(await _items.GetAllForBillingAsync(ct));
+
     /// <summary>Barcode scan. Returns 404 so the scanner UI can beep on an unknown code.</summary>
     [HasPermission(Permissions.Item.View)]
     [HttpGet("by-barcode/{barcode}")]

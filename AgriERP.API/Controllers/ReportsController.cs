@@ -112,4 +112,21 @@ public class ReportsController : BaseApiController
     [HttpGet("gst")]
     public async Task<IActionResult> GstReturn([FromQuery] DateRangeRequest range, CancellationToken ct)
         => Success(await _reports.GetGstReturnAsync(range, ct));
+
+    /* ---------------- compliance ---------------- */
+
+    /// <summary>
+    /// Agriculture-department inspection register: inward (GRN) and outward
+    /// (sale) movements of regulated inputs (pesticide/seed/fertilizer) with
+    /// batch and party, for a period. groupCode = PRDGRP/SEDGRP/FRTGRP or blank
+    /// for all; direction = Inward/Outward or blank for both.
+    /// </summary>
+    [HasPermission(Permissions.Report.Stock)]
+    [HttpGet("compliance-register")]
+    public async Task<IActionResult> ComplianceRegister(
+        [FromQuery] DateRangeRequest range,
+        [FromQuery] string? groupCode,
+        [FromQuery] string? direction,
+        CancellationToken ct)
+        => Success(await _reports.GetComplianceRegisterAsync(range, groupCode, direction, ct));
 }

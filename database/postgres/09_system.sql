@@ -35,6 +35,7 @@ CREATE TABLE "CompanyProfile"
     "LogoPath"            varchar(300),
     "InvoiceTerms"        varchar(1000),
     "InvoiceFooterNote"   varchar(500),
+    "DataGovInApiKey"     varchar(200),
     "UpdatedAt"           timestamp(3),
     "UpdatedBy"           int,
     CONSTRAINT "PK_CompanyProfile" PRIMARY KEY ("CompanyProfileId"),
